@@ -68,6 +68,12 @@
     .preview canvas { image-rendering: pixelated; }
 
     .stage { flex: 1; position: relative; min-width: 0; background: #0c0b0a; }
+    dialog { background: var(--panel); color: var(--text); border: 3px solid var(--edge-light); border-radius: 14px; padding: 12px; }
+    dialog::backdrop { background: rgba(5, 4, 8, 0.7); }
+    .png-dlg { display: flex; gap: 14px; }
+    .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center; font-size: 13px; color: var(--muted); }
+    .png-dlg aside { width: 300px; border: none; padding: 0; background: none; }
+    #pngPrev { image-rendering: pixelated; background: repeating-conic-gradient(#1a1820 0 25%, #16141b 0 50%) 0 0 / 10px 10px; border-radius: 8px; }
     #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
     .float { position: absolute; display: flex; gap: 8px; align-items: center; background: rgba(33, 28, 41, 0.92); border: 2px solid var(--edge); border-radius: 12px; padding: 5px 10px; font-size: 13px; }
     .opts { left: 10px; top: 10px; flex-wrap: wrap; right: 10px; width: max-content; max-width: calc(100% - 20px); }
@@ -157,6 +163,7 @@
         <button id="btnPaste" title="Ctrl+V — вставить; двигай мышкой или стрелками, Enter — готово, Esc — отмена">Вставить</button>
       </div>
       <div class="row" style="margin-top:6px">
+        <button id="btnPng" title="Картинка PNG в кадр. Можно и Ctrl+V с картинкой в буфере или перетащить её на холст">PNG…</button>
         <button id="btnPasteAll" title="Вставить скопированное во все 16 кадров на то же место">Во все кадры</button>
         <label title="Пустые точки скопированного тоже стирают то, что под ними"><input type="checkbox" id="pasteEmpty"> с пустыми</label>
       </div>
@@ -178,6 +185,28 @@
       <p class="hint">Слева — крупно, справа — размер на карте. «Вправо» — то же, что «вбок», в зеркале: рисовать отдельно не надо.</p>
     </aside>
   </div>
+  <input type="file" id="filePng" accept="image/*" hidden>
+  <!-- Картинка в кадр: уменьшить, свести к нескольким цветам, убрать фон -->
+  <dialog id="pngDlg">
+    <div class="png-dlg">
+      <aside>
+        <h3>Картинка в кадр</h3>
+        <div class="grid2">
+          Размер <select id="pngSize"><option value="fit">вписать в кадр 40×64</option><option value="1">как есть</option><option value="2">в 2 раза меньше</option><option value="3">в 3 раза меньше</option><option value="4">в 4 раза меньше</option></select>
+          Как уменьшать <select id="pngSmooth"><option value="0">по точкам (для пиксель-арта)</option><option value="1">сглаживая (для рисунка)</option></select>
+          Цветов <input type="range" id="pngColors" min="2" max="32" value="16">
+          <span></span><span id="pngColorsText"></span>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <label title="Цвет угла картинки станет пустотой"><input type="checkbox" id="pngBg"> убрать фон по углу</label>
+          <label title="Новые цвета получат свет и тень, как материалы"><input type="checkbox" id="pngShade"> с тенями</label>
+        </div>
+        <p class="hint">Цвета лягут в «Мои цвета» героя; похожие на уже имеющиеся — возьмутся оттуда. После «Вставить» кусок висит сверху: двигай мышкой или стрелками, Enter — готово.</p>
+        <div class="row" style="margin-top:10px; justify-content:flex-end"><button id="pngCancel">Отмена</button><button id="pngOk" class="main">Вставить</button></div>
+      </aside>
+      <canvas id="pngPrev" width="200" height="320"></canvas>
+    </div>
+  </dialog>
 <script>
 const W = 40, H = 64;
 const hash = (x, y, s = 0) => { let h = (x * 374761393 + y * 668265263 + s * 982451653) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
@@ -783,6 +812,102 @@ $('btnCopyFrame').onclick = () => { const k = $('copyFrom').value; if (k === ui.
 $('btnCopy2').onclick = () => copySel();
 $('btnCut').onclick = () => copySel(true);
 $('btnPaste').onclick = () => pasteClip();
+
+// ───────────── PNG в кадр ─────────────
+// Картинка уменьшается под кадр, сводится к нескольким цветам и встаёт вставленным куском — двигай и Enter
+let pngSrc = null, pendingPaste = 0;
+async function openPng(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  try { pngSrc = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = URL.createObjectURL(file); }); }
+  catch { alert('Картинка не открылась'); return; }
+  applyFloat();
+  $('pngSize').value = pngSrc.width <= W && pngSrc.height <= H ? '1' : 'fit';
+  // Угол непрозрачный — скорее всего, сплошной фон: предложим его убрать
+  const t = document.createElement('canvas'); t.width = t.height = 1; const tg = t.getContext('2d'); tg.drawImage(pngSrc, 0, 0, 1, 1, 0, 0, 1, 1);
+  $('pngBg').checked = tg.getImageData(0, 0, 1, 1).data[3] > 200;
+  $('pngShade').checked = false;
+  $('pngDlg').showModal(); pngPreview();
+}
+function pngScaled() {
+  const s = $('pngSize').value, iw = pngSrc.width, ih = pngSrc.height, k = s === 'fit' ? Math.min(1, W / iw, H / ih) : 1 / +s;
+  const c = document.createElement('canvas'); c.width = Math.max(1, Math.min(W, Math.round(iw * k))); c.height = Math.max(1, Math.min(H, Math.round(ih * k)));
+  const g = c.getContext('2d'); g.imageSmoothingEnabled = $('pngSmooth').value === '1'; g.imageSmoothingQuality = 'high';
+  g.drawImage(pngSrc, 0, 0, Math.round(iw * k), Math.round(ih * k)); return c;
+}
+const dist3 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+const nearestOf = (cs, p) => { let bi = 0, bd = Infinity; cs.forEach((c, i) => { const d = dist3(c, p); if (d < bd) { bd = d; bi = i; } }); return bi; };
+// k-средних: начинаем с цветов, равномерно взятых по яркости, и уточняем
+function kmeans(pts, k) {
+  const uniq = [...new Map(pts.map((p) => [p.join(','), p])).values()];
+  if (uniq.length <= k) return uniq;
+  const sorted = uniq.slice().sort((a, b) => (a[0] * 3 + a[1] * 6 + a[2]) - (b[0] * 3 + b[1] * 6 + b[2]));
+  let cs = Array.from({ length: k }, (_, i) => sorted[Math.floor((i + 0.5) * sorted.length / k)].slice());
+  for (let it = 0; it < 10; it++) {
+    const sum = cs.map(() => [0, 0, 0, 0]);
+    for (const p of pts) { const s = sum[nearestOf(cs, p)]; s[0] += p[0]; s[1] += p[1]; s[2] += p[2]; s[3]++; }
+    cs = cs.map((c, i) => (sum[i][3] ? [sum[i][0] / sum[i][3], sum[i][1] / sum[i][3], sum[i][2] / sum[i][3]] : c));
+  }
+  return cs.map((c) => c.map(Math.round));
+}
+function pngConvert() {
+  const c = pngScaled(), w = c.width, h = c.height, d = c.getContext('2d').getImageData(0, 0, w, h).data, on = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) on[i] = d[i * 4 + 3] >= 128 ? 1 : 0;
+  if ($('pngBg').checked) {
+    // Фон — от краёв, похожий на цвет угла; внутри фигуры такой же цвет не трогаем
+    const bg = [d[0], d[1], d[2]], like = (i) => Math.abs(d[i * 4] - bg[0]) + Math.abs(d[i * 4 + 1] - bg[1]) + Math.abs(d[i * 4 + 2] - bg[2]) < 48, st = [];
+    for (let x = 0; x < w; x++) st.push(x, (h - 1) * w + x); for (let y = 0; y < h; y++) st.push(y * w, y * w + w - 1);
+    while (st.length) { const i = st.pop(); if (!on[i] || !like(i)) continue; on[i] = 0; const x = i % w, y = (i / w) | 0; if (x > 0) st.push(i - 1); if (x < w - 1) st.push(i + 1); if (y > 0) st.push(i - w); if (y < h - 1) st.push(i + w); }
+  }
+  const pts = [], at = new Int32Array(w * h).fill(-1);
+  for (let i = 0; i < w * h; i++) if (on[i]) { at[i] = pts.length; pts.push([d[i * 4], d[i * 4 + 1], d[i * 4 + 2]]); }
+  const centers = kmeans(pts, +$('pngColors').value);
+  return { w, h, at, pick: pts.map((p) => nearestOf(centers, p)), centers };
+}
+// Цвета куска — в «Мои цвета»: похожий уже есть — берём его, нет — заводим новый код
+function pngCodes(centers, shadeOn, commit) {
+  const h = hero(), taken = { ...h.colors }, codes = []; let added = 0, full = false;
+  for (const c of centers) {
+    const hex = rgbFrom(c), same = Object.entries(taken).find(([, v]) => v.shade === shadeOn && dist3(hexRgb3(v.hex), c) < 14 * 14);
+    if (same) { codes.push(same[0]); continue; }
+    const code = CUSTOM_CODES.find((k) => !taken[k]);
+    if (!code) { full = true; const near = Object.entries(taken).sort(([, a], [, b]) => dist3(hexRgb3(a.hex), c) - dist3(hexRgb3(b.hex), c))[0]; codes.push(near ? near[0] : '.'); continue; }
+    taken[code] = { hex, shade: shadeOn }; codes.push(code); added++;
+  }
+  if (commit) h.colors = taken;
+  return { codes, added, full };
+}
+const rgbFrom = (c) => '#' + c.map((v) => Math.max(0, Math.min(255, v)).toString(16).padStart(2, '0')).join('');
+const hexRgb3 = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+function pngPreview() {
+  if (!pngSrc) return;
+  const r = pngConvert(), g = $('pngPrev').getContext('2d'), S = 5, { added, full } = pngCodes(r.centers, $('pngShade').checked, false);
+  g.clearRect(0, 0, 200, 320);
+  const ox = Math.floor((W - r.w) / 2), oy = Math.max(0, Math.min(H - r.h, 62 - r.h));
+  for (let i = 0; i < r.w * r.h; i++) { if (r.at[i] < 0) continue; g.fillStyle = rgbFrom(r.centers[r.pick[r.at[i]]]); g.fillRect((ox + i % r.w) * S, (oy + ((i / r.w) | 0)) * S, S, S); }
+  g.strokeStyle = 'rgba(242,196,90,0.35)'; g.setLineDash([5, 5]); g.beginPath(); g.moveTo(0, 62 * S + 0.5); g.lineTo(200, 62 * S + 0.5); g.stroke(); g.setLineDash([]);
+  $('pngColorsText').textContent = `${r.w}×${r.h} точек · цветов ${r.centers.length}, новых ${added}${full ? ' — палитра полна, часть цветов заменена похожими' : ''}`;
+}
+for (const id of ['pngSize', 'pngSmooth', 'pngColors', 'pngBg', 'pngShade']) $(id).oninput = $(id).onchange = pngPreview;
+$('pngCancel').onclick = () => $('pngDlg').close();
+$('pngOk').onclick = () => {
+  const r = pngConvert(), { codes } = pngCodes(r.centers, $('pngShade').checked, true), px = [];
+  for (let i = 0; i < r.w * r.h; i++) px.push(r.at[i] < 0 ? '.' : codes[r.pick[r.at[i]]]);
+  // Как обычная вставка: кусок висит над кадром, ноги — на линии земли, он же лежит в буфере для других кадров
+  const x = Math.floor((W - r.w) / 2), y = Math.max(0, Math.min(H - r.h, 62 - r.h));
+  clip = { x, y, w: r.w, h: r.h, px, from: 'PNG', hero: hero().name };
+  float = { x, y, clip: { ...clip, px: px.slice() } };
+  $('pngDlg').close(); buildTools(); draw(); showClip(); autosave();
+};
+$('btnPng').onclick = () => $('filePng').click();
+$('filePng').onchange = (e) => { openPng(e.target.files[0]); e.target.value = ''; };
+view.addEventListener('dragover', (e) => e.preventDefault());
+view.addEventListener('drop', (e) => { e.preventDefault(); openPng(e.dataTransfer.files[0]); });
+// Ctrl+V: картинка в буфере обмена — в окно PNG, иначе — свой скопированный кусок
+window.addEventListener('paste', (e) => {
+  if (e.target.matches?.('input, textarea')) return;
+  const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
+  if (item) { clearTimeout(pendingPaste); e.preventDefault(); openPng(item.getAsFile()); }
+});
 $('btnPasteAll').onclick = () => {
   const f = float || (clip && { x: clip.x, y: clip.y, clip }); if (!f) { alert('Сначала скопируй: Ctrl+C или «Копировать»'); return; }
   if (!confirm('Вставить скопированное во все 16 кадров этого героя на то же место?')) return;
@@ -799,13 +924,14 @@ $('optShade').onchange = (e) => { ui.shaded = e.target.checked; draw(); };
 $('optGrid').onchange = (e) => { ui.grid = e.target.checked; draw(); };
 $('onionPick').onchange = (e) => { ui.onion = e.target.value; draw(); };
 window.addEventListener('keydown', (e) => {
-  if (e.target.matches('input, select')) return;
+  if (e.target.matches('input, select') || $('pngDlg').open) return;
   const k = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я')) { e.preventDefault(); step(e.shiftKey ? redo : undo, e.shiftKey ? undo : redo); return; }
   if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н')) { e.preventDefault(); step(redo, undo); return; }
   if ((e.ctrlKey || e.metaKey) && (k === 'c' || k === 'с')) { e.preventDefault(); copySel(); return; }
   if ((e.ctrlKey || e.metaKey) && (k === 'x' || k === 'ч')) { e.preventDefault(); copySel(true); return; }
-  if ((e.ctrlKey || e.metaKey) && (k === 'v' || k === 'м')) { e.preventDefault(); pasteClip(); return; }
+  // Не мешаем браузеру: если в буфере картинка, её поймает 'paste', а свой кусок вставится чуть позже
+  if ((e.ctrlKey || e.metaKey) && (k === 'v' || k === 'м')) { clearTimeout(pendingPaste); pendingPaste = setTimeout(() => { if (!$('pngDlg').open) pasteClip(); }, 80); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (k === 'enter' && float) { applyFloat(); return; }
   if (k === 'escape') { if (float) { float = null; showClip(); } else selRect = null; draw(); return; }
