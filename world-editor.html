@@ -1,0 +1,1376 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Редактор мира — Пепел после Тишины</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    /* Те же цвета и шрифты, что в редакторе героев */
+    :root {
+      --bg: #14111a; --panel: #211c29; --panel-2: #2c2536; --edge: #3b3247; --edge-light: #4a3f58; --outline: #1c1720;
+      --cream: #fbf3e0; --text: #ece2d0; --muted: #a99d8c; --gold: #f2c45a; --bad: #e0645a;
+      --font-pixel: "Nunito", "PT Sans", "Segoe UI", system-ui, sans-serif;
+      --font-text: "PT Sans", "Segoe UI", system-ui, sans-serif;
+      color-scheme: dark;
+    }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html, body { height: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.4 var(--font-text); display: flex; flex-direction: column; overflow: hidden; }
+    button { font-family: var(--font-pixel); font-weight: 800; font-size: 14px; color: var(--text); background: var(--panel-2); border: 2px solid var(--edge-light); border-radius: 999px; padding: 4px 14px; cursor: pointer; white-space: nowrap; }
+    button:hover { border-color: var(--gold); }
+    button.main, button.on { background: var(--cream); color: #2a2026; border-color: var(--outline); box-shadow: inset 0 0 0 2px var(--gold); }
+    button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+    input, select { font: 14px var(--font-text); color: var(--text); background: var(--bg); border: 2px solid var(--edge); border-radius: 8px; padding: 3px 7px; min-width: 0; }
+    input:focus, select:focus { outline: none; border-color: var(--gold); }
+    input[type=checkbox] { accent-color: var(--gold); }
+    input[type=range] { accent-color: var(--gold); padding: 0; }
+    input[type=number] { width: 64px; padding: 3px 4px; }
+    label { display: inline-flex; align-items: center; gap: 6px; }
+
+    .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 14px; background: var(--panel); border-bottom: 3px solid var(--edge); }
+    .logo { font-family: var(--font-pixel); font-weight: 900; font-size: 19px; color: var(--gold); text-shadow: 0 2px 0 var(--outline); white-space: nowrap; }
+    .fields { display: flex; gap: 6px 12px; flex-wrap: wrap; flex: 1 1 200px; font-size: 13px; color: var(--muted); align-items: center; }
+    .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+    .layout { flex: 1; display: flex; min-height: 0; }
+    aside { width: 268px; flex: none; background: var(--panel); overflow-y: auto; padding: 10px; }
+    aside.tools { border-right: 3px solid var(--edge); }
+    aside.props { border-left: 3px solid var(--edge); width: 300px; }
+    h3 { margin: 14px 0 6px; font: 900 13px var(--font-pixel); color: var(--gold); text-transform: uppercase; letter-spacing: 0.06em; }
+    h3:first-child { margin-top: 0; }
+    .row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+    .row button { font-size: 13px; padding: 3px 10px; }
+    .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+    .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 5px 8px; align-items: center; font-size: 13px; color: var(--muted); }
+    .grid2 input[type=text] { width: 100%; }
+
+    /* Круг цветов */
+    .picker .wheel { display: flex; gap: 8px; }
+    .picker canvas.wheel-c { width: 150px; height: 150px; cursor: crosshair; touch-action: none; border-radius: 50%; }
+    .picker input.val { writing-mode: vertical-lr; direction: rtl; width: 22px; }
+    .picker .now { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+    .picker .now i { width: 34px; height: 34px; border-radius: 8px; border: 2px solid var(--outline); flex: none; }
+    .picker .now input { width: 86px; padding: 3px 5px; font: 13px ui-monospace, Consolas, monospace; }
+    .picker .rgb { display: flex; gap: 4px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+    .picker .rgb input { width: 50px; -moz-appearance: textfield; }
+    .picker .rgb input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+    .swatches { display: grid; grid-template-columns: repeat(8, 1fr); gap: 4px; margin-top: 6px; }
+    .swatches button { height: 24px; padding: 0; border-radius: 6px; }
+
+    .lib { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+    .lib button { height: 78px; padding: 3px; border-radius: 10px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 2px; font-size: 11px; overflow: hidden; }
+    .lib img { max-width: 100%; max-height: 54px; image-rendering: pixelated; }
+    .lib span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+
+    .stage { flex: 1; position: relative; min-width: 0; background: #07060a; }
+    #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+    .float { position: absolute; display: flex; gap: 8px; align-items: center; background: rgba(33, 28, 41, 0.92); border: 2px solid var(--edge); border-radius: 12px; padding: 5px 10px; font-size: 13px; }
+    .opts { left: 10px; top: 10px; flex-wrap: wrap; max-width: calc(100% - 170px); }
+    .zoom { right: 10px; top: 10px; }
+    .zoom button { padding: 1px 10px; }
+    #status { left: 10px; bottom: 10px; color: var(--muted); max-width: calc(100% - 20px); }
+    #status b { color: var(--text); }
+    #playHint { left: 50%; top: 10px; transform: translateX(-50%); display: block; white-space: nowrap; }
+
+    dialog { background: var(--panel); color: var(--text); border: 3px solid var(--edge-light); border-radius: 14px; padding: 0; max-width: 96vw; max-height: 94vh; }
+    dialog::backdrop { background: rgba(5, 4, 8, 0.7); }
+    .dlg { display: flex; gap: 12px; padding: 12px; max-height: 92vh; }
+    .dlg aside { border: none; padding: 0; width: 250px; background: none; }
+    .dlg .canvas-box { flex: 1; min-width: 360px; background: #07060a; border-radius: 10px; position: relative; overflow: hidden; }
+    .dlg canvas.work { width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
+    .dlg .foot { display: flex; gap: 6px; justify-content: flex-end; margin-top: 12px; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <div class="logo">Редактор мира</div>
+    <div class="fields">
+      <label>Карта <input type="text" id="mapName" style="width:160px"></label>
+    </div>
+    <div class="actions">
+      <button id="btnNewMap">Новая</button>
+      <button id="btnOpen">Открыть</button>
+      <button id="btnSave" class="main" title="Файл .json со всей картой — его я заберу в игру">Сохранить</button>
+      <button id="btnTiled" title="Взять разметку из карты Tiled (.tmj)">Из Tiled</button>
+      <button id="btnShot" title="Картинка всей карты">PNG</button>
+      <button id="btnUndo" title="Ctrl+Z">Отменить</button>
+      <button id="btnRedo" title="Ctrl+Y">Вернуть</button>
+      <button id="btnPlay" title="Пройтись мечником, Esc — назад">▶ Пройтись</button>
+      <input type="file" id="fileMap" accept=".json,application/json" hidden>
+      <input type="file" id="fileTiled" accept=".tmj,.json" hidden>
+      <input type="file" id="fileImage" accept="image/*" hidden>
+      <input type="file" id="fileGround" accept="image/*" hidden>
+    </div>
+  </div>
+  <div class="layout">
+    <aside class="tools">
+      <h3>Инструмент</h3>
+      <div class="row" id="toolRow"></div>
+      <div id="toolOpts"></div>
+      <h3>Цвет</h3>
+      <div class="picker" id="mainPicker"></div>
+      <h3>Готовые</h3>
+      <div class="swatches" id="presetRow"></div>
+      <h3>Мои цвета</h3>
+      <div class="swatches" id="mineRow"></div>
+      <div class="row" style="margin-top:6px"><button id="btnAddMine">Запомнить цвет</button></div>
+      <p class="hint" id="toolHint"></p>
+    </aside>
+    <div class="stage" id="stage">
+      <canvas id="view"></canvas>
+      <div class="float opts" id="opts">
+        <label><input type="checkbox" id="optGrid"> Сетка</label>
+        <label><input type="checkbox" id="optBlock" checked> Стены</label>
+        <label><input type="checkbox" id="optMarks" checked> Метки</label>
+        <label><input type="checkbox" id="optTime"> Время суток</label>
+      </div>
+      <div class="float zoom"><button id="zoomOut">−</button><span id="zoomVal">100%</span><button id="zoomIn">+</button></div>
+      <div class="float" id="playHint" hidden><b>WASD</b>&nbsp;или стрелки — идти, <b>Esc</b> — назад в редактор</div>
+      <div class="float" id="status"></div>
+    </div>
+    <aside class="props">
+      <h3>Карта</h3>
+      <div class="grid2">
+        Ширина <span><input type="number" id="mapCols" min="8" max="200"> клеток</span>
+        Высота <span><input type="number" id="mapRows" min="8" max="200"> клеток</span>
+        Край <select id="mapAnchor"><option value="tl">растить вправо и вниз</option><option value="c">растить во все стороны</option></select>
+      </div>
+      <div class="row" style="margin-top:6px"><button id="btnResize">Изменить размер</button></div>
+      <p class="hint" id="mapSizeHint"></p>
+      <div class="grid2" style="margin-top:8px">
+        Цвет земли <span class="row"><i id="groundSw" style="width:26px;height:22px;border-radius:6px;border:2px solid var(--outline)"></i><button id="btnGroundColor">Взять цвет</button></span>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="btnGroundImg" title="Готовая картинка земли — например, из ChatGPT">Картинка земли</button>
+        <button id="btnGroundFit" title="Сделать карту размером с картинку">Карту под картинку</button>
+        <button id="btnGroundDel">Убрать</button>
+      </div>
+      <div class="grid2" style="margin-top:6px" id="groundImgOpts">
+        Увеличение <input type="number" id="groundScale" min="0.25" max="8" step="0.25">
+      </div>
+      <h3>Время суток</h3>
+      <div class="grid2">
+        Сейчас <span class="row"><input type="range" id="timeHour" min="0" max="24" step="0.25" style="width:130px"> <b id="timeText"></b></span>
+        Идёт само <label><input type="checkbox" id="timeCycle"> сутки за <input type="number" id="timeMinutes" min="1" max="120"> мин</label>
+      </div>
+      <p class="hint">В игре время идёт само, ночью загораются огни. «Время суток» над картой — посмотреть, как будет.</p>
+      <h3>Выбрано</h3>
+      <div id="selBox"><p class="hint">Инструмент «Выбрать» — клик по объекту, огню или месту.</p></div>
+      <h3>Объекты</h3>
+      <div class="row">
+        <button id="btnDraw" title="Нарисовать здание, дерево, бочку по точкам">Нарисовать</button>
+        <button id="btnImport" title="Одна картинка: убрать фон, разрезать лист. Можно и Ctrl+V — вставить из буфера">Картинка…</button>
+        <button id="btnPack" title="Много картинок разом — например, весь скачанный набор">Набор…</button>
+        <button id="btnPackDir" title="Целая папка с картинками, с подпапками">Папка…</button>
+      </div>
+      <p class="hint">Картинки можно и перетащить на карту или вставить <b>Ctrl+V</b>. Наборы из интернета — только с открытой лицензией; в «Откуда» пиши набор и автора, список для docs/assets.md соберётся сам.</p>
+      <div class="row" style="margin-top:8px"><label>Папка <select id="libFolder"></select></label></div>
+      <div class="lib" id="libRow" style="margin-top:6px"></div>
+      <div id="libInfo" style="margin-top:8px"></div>
+      <div class="row" style="margin-top:6px"><button id="btnSources" title="Все наборы, откуда взяты объекты">Откуда взято</button></div>
+      <datalist id="folderList"></datalist>
+      <input type="file" id="filePack" accept="image/*" multiple hidden>
+      <input type="file" id="filePackDir" webkitdirectory multiple hidden>
+    </aside>
+  </div>
+
+  <!-- Рисование объекта по точкам -->
+  <dialog id="objDlg">
+    <div class="dlg">
+      <aside>
+        <h3>Объект</h3>
+        <div class="grid2">
+          Имя <input type="text" id="objName">
+          Размер <span class="row"><input type="number" id="objW" min="4" max="256"> × <input type="number" id="objH" min="4" max="256"></span>
+        </div>
+        <div class="row" style="margin-top:6px"><button id="objResize">Изменить размер</button></div>
+        <h3>Инструмент</h3>
+        <div class="row" id="objTools"></div>
+        <div class="row" style="margin-top:6px" id="objBrush"></div>
+        <div class="row" style="margin-top:6px">
+          <label><input type="checkbox" id="objMirror"> Зеркально</label>
+          <label title="Тёмная обводка снаружи"><input type="checkbox" id="objOutline"> Контур</label>
+          <label title="Свет слева сверху, тень справа снизу"><input type="checkbox" id="objShade"> Объём</label>
+        </div>
+        <h3>Цвет</h3>
+        <div class="picker" id="objPicker"></div>
+        <div class="swatches" id="objRecent"></div>
+        <p class="hint">Правая кнопка — стереть, <b>Ctrl+Z</b> — отменить. На карте объект встаёт нижним краем: рисуй так, чтобы низ был основанием.</p>
+        <div class="foot"><button id="objCancel">Отмена</button><button id="objDone" class="main">Готово</button></div>
+      </aside>
+      <div class="canvas-box" style="width:min(62vw,720px);height:min(86vh,720px)"><canvas class="work" id="objCanvas"></canvas></div>
+    </div>
+  </dialog>
+
+  <!-- Картинка в объект: убрать фон, уменьшить -->
+  <dialog id="impDlg">
+    <div class="dlg">
+      <aside>
+        <h3>Картинка</h3>
+        <div class="grid2">
+          Имя <input type="text" id="impName">
+          Уменьшить <select id="impDown"><option value="1">нет</option><option value="2">в 2 раза</option><option value="3">в 3 раза</option><option value="4">в 4 раза</option></select>
+          На карте <span><input type="number" id="impScale" min="0.25" max="8" step="0.25"> ×</span>
+        </div>
+        <h3>Убрать фон</h3>
+        <p class="hint" style="margin-top:0">Кликни по фону на картинке — он станет прозрачным. Лучше всего — ярко-зелёный фон.</p>
+        <div class="grid2" style="margin-top:6px">
+          Похожесть <input type="range" id="impTol" min="0" max="160" value="40">
+          <span></span><label><input type="checkbox" id="impEdges" checked> только от краёв</label>
+        </div>
+        <div class="row" style="margin-top:6px"><button id="impReset">Вернуть фон</button><button id="impCrop">Обрезать пустое</button></div>
+        <h3>Лист с многими вещами</h3>
+        <p class="hint" style="margin-top:0">Сначала убери фон. «Разрезать» сам находит каждую вещь; «По сетке» — для листов с ровными клетками.</p>
+        <div class="row" style="margin-top:6px"><button id="impSplit">Разрезать на вещи</button></div>
+        <div class="grid2" style="margin-top:6px">Клетка <span class="row"><input type="number" id="impGW" min="4" max="1024" value="64"> × <input type="number" id="impGH" min="4" max="1024" value="64"> <button id="impGrid">По сетке</button></span></div>
+        <h3>Куда</h3>
+        <div class="grid2">
+          Папка <input type="text" id="impFolder" list="folderList" placeholder="например Природа">
+          Откуда <input type="text" id="impSource" placeholder="набор, автор, ссылка">
+        </div>
+        <div class="foot"><button id="impCancel">Отмена</button><button id="impDone" class="main">В объекты</button></div>
+      </aside>
+      <div class="canvas-box" style="width:min(62vw,720px);height:min(86vh,640px)"><canvas class="work" id="impCanvas"></canvas></div>
+    </div>
+  </dialog>
+<script>
+// ───────────── Мечник для «Пройтись» (из docs/samples/knight.html) ─────────────
+const W = 40, H = 64;
+const hash = (x, y, s = 0) => { let h = (x * 374761393 + y * 668265263 + s * 982451653) | 0; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967295; };
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map((v) => (v + 0.5) / 16);
+const OUT = '#08070a';
+
+// Палитры материалов: от светлого к тёмному
+const BASE = {
+  plate: ['#625a56', '#3a3434', '#221e1f', '#110f10'],
+  metal: ['#46403e', '#2a2627', '#191617', '#0d0b0c'],
+  seam: ['#0c0a0b'],
+  trim: ['#d6ae6a', '#9a7440', '#5e4426'],
+  leather: ['#8a5a36', '#643e24', '#432816', '#2a180c'],
+  scab: ['#3e302a', '#281e1a', '#160f0c'],
+  steel: ['#d2d0c8', '#8e8c86', '#5a5854', '#34322f'],
+};
+const CLOAKS = {
+  'Красный': ['#9a2e26', '#721e1a', '#4e1210', '#2e0a0a'],
+  'Зелёный': ['#4e6a2e', '#36501e', '#223414', '#121e0a'],
+  'Синий': ['#34507a', '#243a5a', '#16243c', '#0c1424'],
+  'Фиолетовый': ['#6a3a82', '#4c2860', '#30183e', '#1a0c22'],
+  'Пепельный': ['#7a7468', '#58534a', '#38342e', '#1e1c18'],
+};
+
+// Рисуем материалами по клеткам без сглаживания, потом каждая клетка получает свой оттенок.
+// a.dx / a.dy сдвигают всё, что рисуется дальше (покачивание при шаге); flip — зеркало до теней, чтобы свет остался слева
+function figure(draw, cloak, seed = 0, flip = false) {
+  let M = new Array(W * H).fill(null);
+  const api = { dx: 0, dy: 0 };
+  const P = (m, x, y) => { x = Math.round(x + api.dx); y = Math.round(y + api.dy); if (x >= 0 && y >= 0 && x < W && y < H) M[y * W + x] = m; };
+  Object.assign(api, {
+    P,
+    R: (m, x, y, w, h) => { for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) P(m, i, j); },
+    E: (m, cx, cy, rx, ry) => { for (let j = Math.floor(cy - ry); j <= cy + ry; j++) for (let i = Math.floor(cx - rx); i <= cx + rx; i++) if (((i + 0.5 - cx) / rx) ** 2 + ((j + 0.5 - cy) / ry) ** 2 <= 1) P(m, i, j); },
+    poly: (m, pts) => {
+      for (let j = 0; j < H; j++) for (let i = 0; i < W; i++) {
+        let inside = false;
+        for (let a = 0, b = pts.length - 1; a < pts.length; b = a++) { const [xa, ya] = pts[a], [xb, yb] = pts[b]; if ((ya > j + 0.5) !== (yb > j + 0.5) && i + 0.5 < ((xb - xa) * (j + 0.5 - ya)) / (yb - ya) + xa) inside = !inside; }
+        if (inside) P(m, i, j);
+      }
+    },
+    L: (m, x0, y0, x1, y1, t = 1) => {
+      const dx = x1 - x0, dy = y1 - y0, len2 = dx * dx + dy * dy || 1;
+      for (let j = Math.floor(Math.min(y0, y1) - t); j <= Math.max(y0, y1) + t; j++) for (let i = Math.floor(Math.min(x0, x1) - t); i <= Math.max(x0, x1) + t; i++) {
+        const k = Math.max(0, Math.min(1, ((i + 0.5 - x0) * dx + (j + 0.5 - y0) * dy) / len2));
+        if (Math.hypot(i + 0.5 - x0 - k * dx, j + 0.5 - y0 - k * dy) <= t / 2) P(m, i, j);
+      }
+    },
+    // Рваный край плаща: свисающие лоскуты и дырки
+    rag: (m, x0, x1, y, depth) => { for (let i = x0; i <= x1; i++) { const d = Math.floor(hash(i, seed, 7) * depth * (hash(i >> 1, seed, 3) < 0.6 ? 1 : 0.3)); api.R(m, i, y, 1, d); if (hash(i, y, seed + 9) < 0.18) P(null, i, y - 1); } },
+  });
+  draw(api);
+  if (flip) { const F = new Array(W * H); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) F[y * W + x] = M[y * W + (W - 1 - x)]; M = F; }
+  const ramps = { ...BASE, cloak };
+  const c = Object.assign(document.createElement('canvas'), { width: W, height: H }), g = c.getContext('2d'), img = g.createImageData(W, H), d = img.data;
+  const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H ? null : M[y * W + x]);
+  const put = (i, hex) => { d[i * 4] = parseInt(hex.slice(1, 3), 16); d[i * 4 + 1] = parseInt(hex.slice(3, 5), 16); d[i * 4 + 2] = parseInt(hex.slice(5, 7), 16); d[i * 4 + 3] = 255; };
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const i = y * W + x, m = M[i];
+    if (!m) { if (at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1)) put(i, OUT); continue; }
+    const r = ramps[m], n = r.length - 1;
+    if (!n) { put(i, r[0]); continue; }
+    // Свет слева сверху: общий наклон по фигуре + блик у левого/верхнего края, тень у правого/нижнего
+    let v = 1.5 + ((x - W / 2) / (W / 2)) * 0.8 + ((y - H / 2) / H) * 0.5;
+    if (at(x - 1, y) !== m || at(x, y - 1) !== m) v -= 1.1;
+    if (at(x + 1, y) !== m || at(x, y + 1) !== m) v += 0.9;
+    if (m === 'cloak' || m === 'leather') v += (hash(x, y, 5) - 0.5) * 0.5; // фактура ткани и кожи
+    if (m === 'plate' && hash(x, y, 11) < 0.05) v -= 1.2; // царапины на стали
+    v *= n / 3;
+    put(i, r[Math.max(0, Math.min(n, Math.floor(v + BAYER[(y % 4) * 4 + (x % 4)] - 0.5)))]);
+  }
+  g.putImageData(img, 0, 0);
+  return c;
+}
+
+// ── Детали фигуры (их же берёт knight-hd.html) ──
+// Шаг: фаза 0..3. В фазах 1 и 3 одна нога поднята, тело на точку выше
+const lift = (p, side) => (p === 1 && side === 0) || (p === 3 && side === 1) ? 2 : 0;
+const bob = (p) => (p % 2 ? -1 : 0);
+
+// Ноги спереди/сзади: x — левый край ноги, l — насколько поднята
+function leg(a, x, l, w = 5) {
+  a.R('metal', x, 36, w, 20 - l);
+  a.R('leather', x, 52 - l, w, 1);
+  a.R('plate', x, 54 - l, w, 6); a.R('plate', x + (x < 20 ? -1 : 0), 59 - l, w + 1, 3);
+  a.E('plate', x + w / 2, 45 - l / 2, 3, 3.2); a.P('trim', x + Math.floor(w / 2), 45 - l / 2);
+}
+function legs(a, p = 0) { leg(a, 14, lift(p, 0)); leg(a, 21, lift(p, 1)); }
+// Руки качаются против ног
+function arms(a, p = 0) {
+  const s = [0, 1, 0, -1][p];
+  for (const [x, k] of [[8, -s], [27, s]]) {
+    a.R('metal', x, 20, 5, 15 + k); a.R('plate', x, 28 + k, 5, 6); a.R('trim', x, 28 + k, 5, 1);
+    a.E('plate', x + 2.5, 37 + k, 3, 2.8);
+  }
+}
+function shoulders(a) {
+  a.E('plate', 10.5, 19.5, 4.8, 4.2); a.E('plate', 29.5, 19.5, 4.8, 4.2);
+  a.E('metal', 9.5, 23, 4.5, 2.2); a.E('metal', 30.5, 23, 4.5, 2.2);
+  a.L('trim', 5.5, 18.5, 12, 15.2, 1); a.L('trim', 28, 15.2, 34.5, 18.5, 1);
+}
+// Шлем: c — центр, face — сдвиг прорези к лицу (в три четверти лицо повёрнуто)
+function helmet(a, c = 20, face = 0) {
+  a.E('plate', c, 9, 4.6, 5.6); a.R('plate', c - 4, 9, 9, 6);
+  a.L('trim', c, 3.5, c + face * 0.4, 7.5, 1);
+  const x = c - 4 + Math.max(face, 0), w = 9 - Math.abs(face);
+  a.R('trim', x, 8, w, 1); a.R('seam', x, 9, w, 2); a.R('trim', x, 11, w, 1); a.R('trim', c - 4, 14, 9, 1);
+}
+// Меч в правой руке остриём вниз: навершие, рукоять, гарда поперёк клинка, клинок с долом. dx — сдвиг по фигуре
+function swordInHand(a, dx = 0) {
+  a.L('steel', 12.6 + dx, 39.2, 29 + dx, 56.5, 2.8); a.L('steel', 28.5 + dx, 56, 30.6 + dx, 58.3, 1.4); a.L('metal', 14.5 + dx, 41.4, 27 + dx, 54.6, 0.7);
+  a.L('leather', 8.6 + dx, 35, 11.8 + dx, 38.4, 1.8); a.E('trim', 8.2 + dx, 34.6, 1.5, 1.5);
+  a.L('trim', 9.2 + dx, 41.2, 14.9 + dx, 35.8, 1.6);
+  a.E('plate', 10.2 + dx, 36.8, 2.6, 2.4);
+}
+// Ножны за спиной, вид спереди: над плечом рукоять меча (или пустое устье чуть ниже), из-под плаща — конец ножен.
+// Длина та же, что на виде со спины: от плеча до колена
+function scabbardFront(a, sword, x = 0) {
+  if (sword) { a.L('scab', 11.6 + x, 10, 13 + x, 14, 3); a.L('trim', 10.2 + x, 10.6, 13.4 + x, 9.7, 1.5); }
+  else { a.L('leather', 10 + x, 3, 13 + x, 14, 2); a.E('trim', 9.5 + x, 2, 1.6, 1.6); a.L('trim', 8.5 + x, 12, 15 + x, 9.5, 1.3); }
+}
+function scabbardTip(a, x = 0) {
+  a.L('scab', 25 + x, 38, 27 + x, 50, 3.2); a.L('trim', 24 + x, 44, 28.4 + x, 44.6, 1.2);
+  a.poly('trim', [[25.4 + x, 49], [28.6 + x, 49.4], [27 + x, 53.5]]);
+}
+
+function front(a, sword, p = 0) {
+  a.dy = bob(p);
+  scabbardFront(a, sword);
+  a.poly('cloak', [[11, 15], [29, 15], [33, 30], [35, 52], [5, 52], [7, 30]]); a.rag('cloak', 5, 35, 52, 7);
+  scabbardTip(a);
+  a.dy = 0; legs(a, p); a.dy = bob(p);
+  a.poly('cloak', [[15, 32], [25, 32], [24, 46], [22, 43], [20, 48], [18, 43], [16, 46]]);
+  a.poly('metal', [[13, 16], [27, 16], [28, 24], [26, 33], [14, 33], [12, 24]]);
+  a.E('plate', 20, 22, 6, 6); a.L('seam', 20, 17, 20, 29, 1); a.E('trim', 20, 21, 1.2, 1.2);
+  a.L('leather', 14, 18, 26, 30, 1.7);
+  a.R('leather', 13, 31, 14, 3); a.R('trim', 19, 31, 3, 3); a.P('seam', 20, 32);
+  a.R('leather', 13, 34, 4, 4); a.R('leather', 23, 34, 4, 4); a.P('trim', 14, 35); a.P('trim', 25, 35);
+  arms(a, p); shoulders(a);
+  a.E('cloak', 20, 15, 7.5, 3); a.poly('cloak', [[14, 15], [26, 15], [24, 20], [20, 23], [16, 20]]);
+  helmet(a);
+  if (sword) swordInHand(a);
+}
+function back(a, p = 0) {
+  a.dy = 0; legs(a, p); a.dy = bob(p);
+  arms(a, p);
+  a.poly('cloak', [[11, 15], [29, 15], [33, 34], [32, 52], [8, 52], [7, 34]]); a.rag('cloak', 8, 32, 52, 8);
+  a.P(null, 22, 46); a.P(null, 23, 46); a.P(null, 22, 47); // дыра в плаще
+  shoulders(a);
+  a.E('cloak', 20, 16, 9, 3.5);
+  a.E('plate', 20, 9, 4.6, 5.6); a.R('plate', 16, 9, 9, 6); a.L('trim', 20, 2.5, 20, 13, 1);
+  // Ножны по диагонали, рукоять над правым плечом
+  a.L('scab', 26, 12, 14, 50, 3.4); for (const k of [0.2, 0.55]) a.L('trim', 26 - 12 * k - 2, 12 + 38 * k, 26 - 12 * k + 2, 12 + 38 * k + 1, 1.2);
+  a.poly('trim', [[13, 48], [16, 49], [13.5, 53]]);
+  a.L('leather', 27, 2, 26, 11, 2); a.E('trim', 27.5, 1.5, 1.6, 1.6); a.L('trim', 23, 11, 29.5, 12.5, 1.3);
+  a.L('leather', 11, 17, 29, 36, 1.6); a.R('trim', 19, 26, 2, 2);
+}
+
+// Три четверти, как на образце: развёрнут к нам правым плечом, лицо смотрит влево-вниз.
+// Ближняя сторона (слева) крупнее, дальняя уже и чуть выше. Так же он идёт влево (в зеркале — вправо)
+function quarter(a, sword = true, p = 0) {
+  const s = [0, 1, 0, -1][p];
+  a.dy = bob(p);
+  scabbardFront(a, sword, -0.5);
+  // Плащ шире справа: из-за поворота видно, как он уходит за спину
+  a.poly('cloak', [[11, 15], [27, 15], [34, 32], [37, 52], [6, 52], [7, 32]]); a.rag('cloak', 6, 37, 52, 8);
+  scabbardTip(a, -2);
+  // Дальняя нога уже и на точку выше, ближняя на точку ниже, носком влево
+  a.dy = 0;
+  let l = lift(p, 1);
+  a.R('metal', 20, 35, 4, 19 - l); a.R('leather', 20, 50 - l, 4, 1); a.R('plate', 20, 53 - l, 4, 5); a.R('plate', 20, 57 - l, 6, 3);
+  a.E('plate', 22, 44 - l / 2, 2.5, 3); a.P('trim', 22, 44 - l / 2);
+  l = lift(p, 0);
+  a.R('metal', 12, 36, 5, 21 - l); a.R('leather', 12, 53 - l, 5, 1); a.R('plate', 12, 55 - l, 5, 6); a.R('plate', 10, 60 - l, 7, 3);
+  a.E('plate', 14.5, 46 - l / 2, 3, 3.2); a.P('trim', 14, 46 - l / 2);
+  a.dy = bob(p);
+  a.poly('cloak', [[12, 32], [22, 32], [21, 46], [19, 43], [17, 48], [15, 43], [13, 46]]);
+  // Дальняя рука почти за корпусом
+  a.R('metal', 24, 21, 3, 13 + s); a.R('plate', 24, 28 + s, 3, 6); a.R('trim', 24, 28 + s, 3, 1); a.E('plate', 25.5, 36.5 + s, 2.2, 2.4);
+  a.poly('metal', [[11, 16], [24, 16], [25, 24], [23, 33], [12, 33], [10, 24]]);
+  a.E('plate', 16, 22, 5, 6); a.L('seam', 15.5, 17, 15.5, 29, 1); a.E('trim', 15.5, 21, 1.2, 1.2);
+  a.R('metal', 21, 17, 3, 15); // бок корпуса в тени
+  a.L('leather', 11, 18, 24, 30, 1.7);
+  a.R('leather', 11, 31, 13, 3); a.R('trim', 15, 31, 3, 3); a.P('seam', 16, 32);
+  a.R('leather', 11, 34, 4, 4); a.R('leather', 20, 34, 3, 4); a.P('trim', 12, 35);
+  // Дальний наплечник маленький, ближние рука и наплечник крупнее
+  a.E('plate', 25.5, 19.5, 3.2, 3.6); a.E('metal', 26, 22.5, 2.6, 1.8); a.L('trim', 23, 16.5, 28, 18.5, 1);
+  const k = sword ? 0 : -s;
+  a.R('metal', 6, 20, 5, 15 + k); a.R('plate', 6, 28 + k, 5, 6); a.R('trim', 6, 28 + k, 5, 1); a.E('plate', 8.5, 37 + k, 3, 2.8);
+  a.E('plate', 8.5, 19.5, 5.4, 4.6); a.E('metal', 7.5, 23, 5, 2.4); a.L('trim', 3, 18.5, 11, 14.8, 1);
+  a.E('cloak', 16.5, 15, 7, 3); a.poly('cloak', [[11, 15], [22, 15], [20, 20], [16.5, 23], [13, 20]]);
+  // Шлем повёрнут: прорезь смещена к лицу, правый бок в тени
+  helmet(a, 17, -3);
+  a.R('metal', 19, 9, 3, 5);
+  if (sword) swordInHand(a, -2);
+}
+// ── /Детали ──
+
+// ───────────── Общее ─────────────
+const $ = (id) => document.getElementById(id);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const TILE = 32;   // клетка карты, точек мира
+const DOT = 2;     // точка краски земли и нарисованных объектов — 2×2 точки мира, как картинки из ChatGPT
+const CELL = 8;    // клетка стен
+const hexRgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+const rgbHex = (r, g, b) => '#' + [r, g, b].map((v) => clamp(Math.round(v), 0, 255).toString(16).padStart(2, '0')).join('');
+const mixRgb = ([r, g, b], k, to = 0) => [r + (to - r) * k, g + (to - g) * k, b + (to - b) * k];
+const hsvToRgb = (h, s, v) => { const f = (n) => { const k = (n + h / 60) % 6; return Math.round(255 * (v - v * s * Math.max(0, Math.min(k, 4 - k, 1)))); }; return [f(5), f(3), f(1)]; };
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255; const mx = Math.max(r, g, b), d = mx - Math.min(r, g, b);
+  let h = 0; if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return { h: (h * 60 + 360) % 360, s: mx ? d / mx : 0, v: mx };
+}
+const uid = () => Math.random().toString(36).slice(2, 9);
+const loadImage = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => fail(new Error('картинка не открылась')); i.src = src; });
+const readFile = (f, as = 'dataURL') => new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = fail; as === 'text' ? r.readAsText(f) : r.readAsDataURL(f); });
+const download = (name, blob) => { const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+const newCanvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
+
+// ───────────── Круг цветов ─────────────
+// Один и тот же круг слева и в рисовании объекта: оттенок по кругу, насыщенность от центра, яркость ползунком
+class Picker {
+  constructor(root, onChange) {
+    this.onChange = onChange; this.h = 100; this.s = 0.45; this.v = 0.35;
+    root.innerHTML = `<div class="wheel"><canvas class="wheel-c" width="150" height="150" title="Оттенок по кругу, насыщенность — от центра к краю"></canvas><input type="range" class="val" min="0" max="100" title="Яркость"></div>
+      <div class="now"><i></i><input type="text" maxlength="7" spellcheck="false" title="Впиши цвет, например #8a2a24"></div>
+      <div class="rgb"><label>R <input type="number" min="0" max="255"></label><label>G <input type="number" min="0" max="255"></label><label>B <input type="number" min="0" max="255"></label></div>`;
+    this.wheel = root.querySelector('canvas'); this.g = this.wheel.getContext('2d');
+    this.val = root.querySelector('.val'); this.sw = root.querySelector('i'); this.hex = root.querySelector('.now input'); this.rgb = [...root.querySelectorAll('.rgb input')];
+    let drag = false;
+    const pick = (e) => { const r = this.wheel.getBoundingClientRect(), R = r.width / 2, dx = e.clientX - r.left - R, dy = e.clientY - r.top - R; this.h = (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360; this.s = Math.min(1, Math.hypot(dx, dy) / R); this.show(); };
+    this.wheel.addEventListener('pointerdown', (e) => { drag = true; this.wheel.setPointerCapture(e.pointerId); pick(e); });
+    this.wheel.addEventListener('pointermove', (e) => drag && pick(e));
+    this.wheel.addEventListener('pointerup', () => { drag = false; });
+    this.val.oninput = () => { this.v = this.val.value / 100; this.show(); };
+    this.hex.oninput = () => { let v = this.hex.value.trim(); if (!v.startsWith('#')) v = '#' + v; if (/^#[0-9a-f]{6}$/i.test(v)) this.set(v, 'hex'); };
+    for (const i of this.rgb) i.oninput = () => this.set(rgbHex(...this.rgb.map((x) => clamp(+x.value || 0, 0, 255))), 'rgb');
+    this.show();
+  }
+  get value() { return rgbHex(...hsvToRgb(this.h, this.s, this.v)); }
+  set(hex, skip) { const t = rgbToHsv(...hexRgb(hex)); if (t.s > 0) this.h = t.h; this.s = t.s; this.v = t.v; this.show(skip); }
+  show(skip) {
+    const hex = this.value, [r, g, b] = hexRgb(hex), W2 = this.wheel.width, R = W2 / 2, img = this.g.createImageData(W2, W2), d = img.data;
+    for (let y = 0; y < W2; y++) for (let x = 0; x < W2; x++) {
+      const dx = x + 0.5 - R, dy = y + 0.5 - R, q = Math.hypot(dx, dy) / R; if (q > 1) continue;
+      const c = hsvToRgb((Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360, q, this.v), i = (y * W2 + x) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+    }
+    this.g.putImageData(img, 0, 0);
+    const a = this.h * Math.PI / 180; this.g.lineWidth = 2; this.g.strokeStyle = this.v > 0.5 ? '#000' : '#fff';
+    this.g.beginPath(); this.g.arc(R + Math.cos(a) * this.s * R, R + Math.sin(a) * this.s * R, 5, 0, Math.PI * 2); this.g.stroke();
+    this.sw.style.background = hex; this.val.value = Math.round(this.v * 100);
+    if (skip !== 'hex') this.hex.value = hex;
+    if (skip !== 'rgb') this.rgb.forEach((i, k) => { i.value = [r, g, b][k]; });
+    this.onChange?.(hex);
+  }
+}
+
+// ───────────── Фактуры земли ─────────────
+// Цвет точки краски по фактуре: из одного выбранного цвета — трава, земля, брусчатка, песок, вода, доски
+const TEXTURES = [['flat', 'Ровно'], ['grass', 'Трава'], ['dirt', 'Земля'], ['stone', 'Брусчатка'], ['sand', 'Песок'], ['water', 'Вода'], ['wood', 'Доски']];
+function texColor(t, rgb, x, y) {
+  const n = hash(x, y, 3), m = hash(x >> 1, y >> 1, 4);
+  switch (t) {
+    case 'grass': return n < 0.14 ? mixRgb(rgb, 0.22) : n > 0.9 ? mixRgb(rgb, 0.16, 255) : mixRgb(rgb, (m - 0.5) * 0.12, m > 0.5 ? 0 : 255);
+    case 'dirt': return mixRgb(rgb, Math.abs(m - 0.5) * 0.3, m > 0.5 ? 0 : 255);
+    case 'stone': {
+      const row = Math.floor(y / 4), col = Math.floor((x + (row % 2) * 3) / 6);
+      if (y % 4 === 0 || (x + (row % 2) * 3) % 6 === 0) return mixRgb(rgb, 0.35);
+      const k = (hash(col, row, 5) - 0.5) * 0.25; return mixRgb(rgb, Math.abs(k), k > 0 ? 255 : 0);
+    }
+    case 'sand': return n > 0.95 ? mixRgb(rgb, 0.2, 255) : mixRgb(rgb, (n - 0.5) * 0.1, n > 0.5 ? 0 : 255);
+    case 'water': return Math.sin(x * 0.35 + y * 1.3 + hash(x >> 3, y >> 2, 6) * 6) > 0.93 ? mixRgb(rgb, 0.3, 255) : mixRgb(rgb, m * 0.12);
+    case 'wood': {
+      const row = Math.floor(y / 4), seam = (x + hash(row, 1, 7) * 20 | 0) % 14 === 0;
+      return y % 4 === 3 || seam ? mixRgb(rgb, 0.4) : mixRgb(rgb, (hash(row, x >> 2, 8) - 0.5) * 0.15, 0);
+    }
+    default: return rgb;
+  }
+}
+
+// ───────────── Карта ─────────────
+// Всё в точках мира: клетка 32 точки, герой ростом 64. Краска земли — отдельная картинка с точкой 2×2
+function blankDoc(cols = 40, rows = 28) {
+  return {
+    version: 1, name: 'Новая карта', cols, rows,
+    ground: { color: '#25301e', image: null, scale: 2 },
+    lib: [], objects: [], lights: [], places: [], spawn: { x: cols * TILE / 2, y: rows * TILE / 2 },
+    time: { hour: 13, cycle: true, minutes: 12 },
+    colors: [],
+  };
+}
+let doc = blankDoc();
+let paint = newCanvas(1, 1), pg = paint.getContext('2d', { willReadFrequently: true });
+let block = new Uint8Array(1);
+const imgCache = new Map(); // src → Image
+let groundImg = null;
+const mapW = () => doc.cols * TILE, mapH = () => doc.rows * TILE;
+const bw = () => Math.ceil(mapW() / CELL), bh = () => Math.ceil(mapH() / CELL);
+function resetLayers() {
+  paint = newCanvas(mapW() / DOT, mapH() / DOT); pg = paint.getContext('2d', { willReadFrequently: true });
+  block = new Uint8Array(bw() * bh());
+}
+const libById = (id) => doc.lib.find((l) => l.id === id);
+async function libImage(l) { if (!imgCache.has(l.src)) imgCache.set(l.src, await loadImage(l.src)); return imgCache.get(l.src); }
+const libImg = (l) => imgCache.get(l.src);
+
+// Пятно основания: где объект не пускает героя. dx, dy — от точки ног объекта (середина низа)
+function defaultFoot(l, scale) { const w = l.w * scale, h = l.h * scale; const fw = Math.round(w * 0.8), fh = Math.round(Math.min(h * 0.3, 64)); return [-Math.round(fw / 2), -fh, fw, fh]; }
+const objBox = (o) => { const l = libById(o.lib); const w = l.w * o.scale, h = l.h * o.scale; return { x: o.x - w / 2, y: o.y - h, w, h }; };
+
+// ───────────── Время суток ─────────────
+// Тьма и оттенок неба по часам; огни светят, когда темно
+const SKY = [[0, 0.64, [8, 10, 30]], [4.5, 0.6, [10, 12, 34]], [6, 0.34, [70, 40, 50]], [7.5, 0.1, [255, 160, 90]], [9, 0, [0, 0, 0]], [17, 0, [0, 0, 0]], [18.5, 0.16, [255, 120, 60]], [20, 0.42, [50, 28, 60]], [21.5, 0.6, [10, 12, 32]], [24, 0.64, [8, 10, 30]]];
+function sky(hour) {
+  hour = ((hour % 24) + 24) % 24;
+  let i = 0; while (SKY[i + 1][0] < hour) i++;
+  const [h0, a0, c0] = SKY[i], [h1, a1, c1] = SKY[i + 1], k = (hour - h0) / (h1 - h0 || 1);
+  return { a: a0 + (a1 - a0) * k, c: c0.map((v, j) => Math.round(v + (c1[j] - v) * k)) };
+}
+const clock = (hour) => { const h = Math.floor(((hour % 24) + 24) % 24), m = Math.floor((hour % 1) * 60); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; };
+
+// ───────────── Отрисовка мира ─────────────
+const view = $('view'), vg = view.getContext('2d');
+const cam = { x: 0, y: 0, z: 1 };
+const ui = { tool: 'select', size: 6, texture: 'grass', edges: true, roadW: 10, lightR: 80, flick: 1, showGrid: false, showBlock: true, showMarks: true, showTime: false, sel: null, placing: null, play: false };
+let dpr = 1;
+function layout() { dpr = window.devicePixelRatio || 1; const r = view.getBoundingClientRect(); view.width = Math.round(r.width * dpr); view.height = Math.round(r.height * dpr); dirty(); }
+let needDraw = true;
+const dirty = () => { needDraw = true; };
+let shade = null, sg = null;
+
+function drawWorld(g, { hero = null, hour = doc.time.hour, time = false, marks = false, t = performance.now() } = {}) {
+  g.imageSmoothingEnabled = false;
+  g.fillStyle = doc.ground.color; g.fillRect(0, 0, mapW(), mapH());
+  if (groundImg) g.drawImage(groundImg, 0, 0, groundImg.width * doc.ground.scale, groundImg.height * doc.ground.scale);
+  g.drawImage(paint, 0, 0, mapW(), mapH());
+  // Плоские объекты (ковры, лужи) — всегда под всеми; остальные — по нижнему краю, вместе с героем
+  const list = [];
+  for (const o of doc.objects) { const l = libById(o.lib), img = l && libImg(l); if (!img) continue; list.push({ y: o.flat ? -1e9 : o.y, o, img }); }
+  if (hero) list.push({ y: hero.y, hero });
+  list.sort((a, b) => a.y - b.y);
+  for (const it of list) {
+    if (it.hero) { drawHero(g, it.hero, t); continue; }
+    const b = objBox(it.o);
+    if (it.o.flip) { g.save(); g.translate(b.x + b.w, b.y); g.scale(-1, 1); g.drawImage(it.img, 0, 0, b.w, b.h); g.restore(); }
+    else g.drawImage(it.img, b.x, b.y, b.w, b.h);
+  }
+  if (time) drawNight(g, hour, t);
+  if (marks) drawMarks(g);
+}
+function drawNight(g, hour, t) {
+  const s = sky(hour); if (s.a < 0.01) return;
+  const w = mapW(), h = mapH();
+  if (!shade || shade.width !== w || shade.height !== h) { shade = newCanvas(w, h); sg = shade.getContext('2d'); }
+  sg.globalCompositeOperation = 'source-over'; sg.clearRect(0, 0, w, h);
+  sg.fillStyle = `rgba(${s.c.join(',')},${s.a})`; sg.fillRect(0, 0, w, h);
+  // Огни прорезают тьму — тем сильнее, чем темнее
+  const on = clamp((s.a - 0.12) / 0.4, 0, 1);
+  if (on > 0) {
+    sg.globalCompositeOperation = 'destination-out';
+    for (const L of doc.lights) { const R = L.r * flick(L, t); const gr = sg.createRadialGradient(L.x, L.y, 0, L.x, L.y, R); gr.addColorStop(0, `rgba(0,0,0,${on})`); gr.addColorStop(0.55, `rgba(0,0,0,${on * 0.5})`); gr.addColorStop(1, 'rgba(0,0,0,0)'); sg.fillStyle = gr; sg.fillRect(L.x - R, L.y - R, R * 2, R * 2); }
+  }
+  g.drawImage(shade, 0, 0);
+  if (on > 0) {
+    g.globalCompositeOperation = 'lighter';
+    for (const L of doc.lights) { const R = L.r * flick(L, t) * 0.8, c = hexRgb(L.color).join(','); const gr = g.createRadialGradient(L.x, L.y, 0, L.x, L.y, R); gr.addColorStop(0, `rgba(${c},${0.3 * on})`); gr.addColorStop(1, `rgba(${c},0)`); g.fillStyle = gr; g.fillRect(L.x - R, L.y - R, R * 2, R * 2); }
+    g.globalCompositeOperation = 'source-over';
+  }
+}
+const flick = (L, t) => 1 + (L.flicker || 0) * (Math.sin(t / 90 + L.x) * 0.05 + Math.sin(t / 37 + L.y) * 0.035);
+function drawMarks(g) {
+  const z = cam.z, px = 1 / z;
+  if (ui.showBlock) {
+    g.fillStyle = 'rgba(255,60,60,0.33)';
+    const W2 = bw(); for (let i = 0; i < block.length; i++) if (block[i]) g.fillRect((i % W2) * CELL, Math.floor(i / W2) * CELL, CELL, CELL);
+    g.strokeStyle = 'rgba(255,120,60,0.8)'; g.lineWidth = px * 1.5; g.setLineDash([4 * px, 3 * px]);
+    for (const o of doc.objects) if (o.solid !== false && !o.flat) { const [dx, dy, fw, fh] = o.foot; g.strokeRect(o.x + dx, o.y + dy, fw, fh); }
+    g.setLineDash([]);
+  }
+  if (ui.showGrid) {
+    g.strokeStyle = 'rgba(255,255,255,0.08)'; g.lineWidth = px; g.beginPath();
+    for (let x = 0; x <= mapW(); x += TILE) { g.moveTo(x, 0); g.lineTo(x, mapH()); }
+    for (let y = 0; y <= mapH(); y += TILE) { g.moveTo(0, y); g.lineTo(mapW(), y); }
+    g.stroke();
+  }
+  if (!ui.showMarks) return;
+  const dot = (x, y, col, r = 6) => { g.fillStyle = col; g.strokeStyle = '#000'; g.lineWidth = 2 * px; g.beginPath(); g.arc(x, y, r * px, 0, Math.PI * 2); g.fill(); g.stroke(); };
+  g.font = `700 ${12 * px}px Nunito, sans-serif`; g.textAlign = 'center';
+  for (const L of doc.lights) { g.strokeStyle = 'rgba(255,200,90,0.35)'; g.lineWidth = px; g.beginPath(); g.arc(L.x, L.y, L.r, 0, Math.PI * 2); g.stroke(); dot(L.x, L.y, L.color); }
+  for (const p of doc.places) { dot(p.x, p.y, '#f2c45a', 7); g.fillStyle = '#fbf3e0'; g.strokeStyle = '#000'; g.lineWidth = 3 * px; g.strokeText(p.name || 'место', p.x, p.y - 12 * px); g.fillText(p.name || 'место', p.x, p.y - 12 * px); }
+  const s = doc.spawn; dot(s.x, s.y, '#7fd7ff', 8); g.fillStyle = '#7fd7ff'; g.fillText('герой', s.x, s.y + 22 * px);
+}
+function drawSelection(g) {
+  const s = ui.sel; if (!s) return;
+  g.strokeStyle = '#f2c45a'; g.lineWidth = 2 / cam.z; g.setLineDash([6 / cam.z, 4 / cam.z]);
+  if (s.kind === 'object') { const b = objBox(s.item); g.strokeRect(b.x, b.y, b.w, b.h); }
+  else { g.beginPath(); g.arc(s.item.x, s.item.y, 12 / cam.z, 0, Math.PI * 2); g.stroke(); }
+  g.setLineDash([]);
+}
+function render() {
+  if (!needDraw && !ui.play && !(ui.showTime && doc.lights.length)) return;
+  needDraw = false;
+  const g = vg, t = performance.now();
+  g.setTransform(1, 0, 0, 1, 0, 0); g.fillStyle = '#07060a'; g.fillRect(0, 0, view.width, view.height);
+  g.setTransform(cam.z * dpr, 0, 0, cam.z * dpr, -cam.x * cam.z * dpr, -cam.y * cam.z * dpr);
+  if (ui.play) { drawWorld(g, { hero: player, hour: play.hour, time: true, t }); return; }
+  drawWorld(g, { time: ui.showTime, marks: true, t });
+  // Заготовки: дорога, которую сейчас ведёшь, и объект, который ставишь
+  if (road.length) { g.strokeStyle = 'rgba(242,196,90,0.8)'; g.lineWidth = ui.roadW * DOT; g.lineCap = 'round'; g.lineJoin = 'round'; g.globalAlpha = 0.45; g.beginPath(); road.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); if (hover) g.lineTo(hover.x, hover.y); g.stroke(); g.globalAlpha = 1; }
+  if (ui.tool === 'place' && ui.placing && hover) { const l = libById(ui.placing), img = libImg(l); if (img) { const s = l.scale || 2, w = l.w * s, h = l.h * s; g.globalAlpha = 0.65; g.drawImage(img, hover.x - w / 2, hover.y - h, w, h); g.globalAlpha = 1; } }
+  if (hover && (ui.tool === 'brush' || ui.tool === 'erase' || ui.tool === 'wall')) { g.strokeStyle = '#f2c45a'; g.lineWidth = 1.5 / cam.z; g.beginPath(); g.arc(hover.x, hover.y, brushRadiusWorld(), 0, Math.PI * 2); g.stroke(); }
+  g.strokeStyle = 'rgba(242,196,90,0.5)'; g.lineWidth = 2 / cam.z; g.strokeRect(0, 0, mapW(), mapH());
+  drawSelection(g);
+}
+const brushRadiusWorld = () => (ui.tool === 'wall' ? ui.size * 2 : ui.size * DOT) / 2;
+
+// ───────────── Отмена ─────────────
+// Краска — кусками картинки до правки; остальное — снимком карты без картинок
+const undo = [], redo = [];
+const snapState = () => JSON.stringify({ objects: doc.objects, lights: doc.lights, places: doc.places, spawn: doc.spawn, block: Array.from(block) });
+function remember(kind = 'state', rect) {
+  if (kind === 'paint') { const [x, y, w, h] = rect; undo.push({ kind, x, y, img: pg.getImageData(x, y, w, h) }); }
+  else undo.push({ kind: 'state', s: snapState() });
+  if (undo.length > 80) undo.shift(); redo.length = 0;
+}
+function applyStep(from, to) {
+  const s = from.pop(); if (!s) return;
+  if (s.kind === 'paint') { to.push({ kind: 'paint', x: s.x, y: s.y, img: pg.getImageData(s.x, s.y, s.img.width, s.img.height) }); pg.putImageData(s.img, s.x, s.y); }
+  else { to.push({ kind: 'state', s: snapState() }); const v = JSON.parse(s.s); Object.assign(doc, { objects: v.objects, lights: v.lights, places: v.places, spawn: v.spawn }); block = Uint8Array.from(v.block); ui.sel = null; buildSel(); }
+  dirty(); autosave();
+}
+
+// ───────────── Рисование земли ─────────────
+const toPaint = (p) => ({ x: Math.floor(p.x / DOT), y: Math.floor(p.y / DOT) });
+function stamp(cx, cy, r, color, texture, erase = false, img = null, ox = 0, oy = 0) {
+  // img — уже взятый кусок краски (во время мазка), координаты в нём со сдвигом ox, oy
+  const rgb = hexRgb(color), d = img.data, w = img.width;
+  for (let y = Math.floor(cy - r); y <= cy + r; y++) for (let x = Math.floor(cx - r); x <= cx + r; x++) {
+    if ((x - cx) ** 2 + (y - cy) ** 2 > r * r) continue;
+    const ix = x - ox, iy = y - oy; if (ix < 0 || iy < 0 || ix >= w || iy >= img.height) continue;
+    const i = (iy * w + ix) * 4;
+    if (erase) { d[i + 3] = 0; continue; }
+    const c = texColor(texture, rgb, x, y); d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+  }
+}
+// Мазок кистью: одна «отмена» на весь мазок — запоминаем всю краску (она небольшая, точка 2×2)
+let stroke = null;
+function strokeStart(p, erase) {
+  remember('paint', [0, 0, paint.width, paint.height]);
+  stroke = { img: pg.getImageData(0, 0, paint.width, paint.height), last: toPaint(p), erase };
+  strokeTo(p);
+}
+function strokeTo(p) {
+  const q = toPaint(p), a = stroke.last, r = ui.size / 2, steps = Math.max(1, Math.ceil(Math.hypot(q.x - a.x, q.y - a.y) / Math.max(1, r / 2)));
+  for (let k = 1; k <= steps; k++) stamp(a.x + (q.x - a.x) * k / steps, a.y + (q.y - a.y) * k / steps, r, picker.value, ui.texture, stroke.erase, stroke.img, 0, 0);
+  stroke.last = q; pg.putImageData(stroke.img, 0, 0); dirty();
+}
+// Заливка: одинаковые соседние точки краски (или пустые) — в выбранный цвет с фактурой
+function fillAt(p) {
+  const s = toPaint(p), w = paint.width, h = paint.height; if (s.x < 0 || s.y < 0 || s.x >= w || s.y >= h) return;
+  remember('paint', [0, 0, w, h]);
+  const img = pg.getImageData(0, 0, w, h), d = img.data, i0 = (s.y * w + s.x) * 4, from = [d[i0], d[i0 + 1], d[i0 + 2], d[i0 + 3]];
+  const same = (i) => (from[3] === 0 ? d[i + 3] === 0 : d[i + 3] && Math.abs(d[i] - from[0]) + Math.abs(d[i + 1] - from[1]) + Math.abs(d[i + 2] - from[2]) < 40);
+  const rgb = hexRgb(picker.value), seen = new Uint8Array(w * h), st = [s.x, s.y];
+  while (st.length) {
+    const y = st.pop(), x = st.pop(); if (x < 0 || y < 0 || x >= w || y >= h) continue; const k = y * w + x; if (seen[k]) continue; const i = k * 4; if (!same(i)) continue;
+    seen[k] = 1; const c = texColor(ui.texture, rgb, x, y); d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+    st.push(x + 1, y, x - 1, y, x, y + 1, x, y - 1);
+  }
+  pg.putImageData(img, 0, 0); dirty(); autosave();
+}
+// Дорога: кликами ставишь точки, двойной клик или Enter — готово. Линия сглаживается, края темнее
+let road = [];
+function catmull(pts, step = 4) {
+  if (pts.length < 3) return pts;
+  const out = [], P = [pts[0], ...pts, pts[pts.length - 1]];
+  for (let i = 1; i < P.length - 2; i++) {
+    const [p0, p1, p2, p3] = [P[i - 1], P[i], P[i + 1], P[i + 2]], n = Math.max(2, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / step));
+    for (let k = 0; k < n; k++) { const t = k / n, t2 = t * t, t3 = t2 * t; out.push([0, 1].map((j) => 0.5 * (2 * p1[j] + (-p0[j] + p2[j]) * t + (2 * p0[j] - 5 * p1[j] + 4 * p2[j] - p3[j]) * t2 + (-p0[j] + 3 * p1[j] - 3 * p2[j] + p3[j]) * t3))); }
+  }
+  out.push(pts[pts.length - 1]); return out;
+}
+function finishRoad() {
+  if (road.length < 2) { road = []; dirty(); return; }
+  const pts = catmull(road.map(([x, y]) => [x / DOT, y / DOT])), r = ui.roadW / 2, w = paint.width, h = paint.height;
+  let x0 = w, y0 = h, x1 = 0, y1 = 0; for (const [x, y] of pts) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  x0 = clamp(Math.floor(x0 - r - 1), 0, w); y0 = clamp(Math.floor(y0 - r - 1), 0, h); x1 = clamp(Math.ceil(x1 + r + 1), 0, w); y1 = clamp(Math.ceil(y1 + r + 1), 0, h);
+  if (x1 <= x0 || y1 <= y0) { road = []; return; }
+  remember('paint', [x0, y0, x1 - x0, y1 - y0]);
+  const img = pg.getImageData(x0, y0, x1 - x0, y1 - y0), d = img.data, rgb = hexRgb(picker.value);
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    let best = 1e9;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const [ax, ay] = pts[i], [bx, by] = pts[i + 1], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy || 1;
+      const k = clamp(((x + 0.5 - ax) * dx + (y + 0.5 - ay) * dy) / L, 0, 1), dd = Math.hypot(x + 0.5 - ax - k * dx, y + 0.5 - ay - k * dy);
+      if (dd < best) best = dd;
+    }
+    if (best > r) continue;
+    let c = texColor(ui.texture, rgb, x, y);
+    if (ui.edges && best > r - 1.2) c = mixRgb(c, 0.3);
+    else if (ui.edges && best > r - 2.2 && hash(x, y, 9) < 0.5) c = mixRgb(c, 0.15);
+    const i = ((y - y0) * (x1 - x0) + (x - x0)) * 4; d[i] = c[0]; d[i + 1] = c[1]; d[i + 2] = c[2]; d[i + 3] = 255;
+  }
+  pg.putImageData(img, x0, y0); road = []; dirty(); autosave();
+}
+// Стены: клетки 8×8, куда нельзя
+function wallAt(p, on) {
+  const r = ui.size, cx = p.x / CELL, cy = p.y / CELL, W2 = bw(), H2 = bh();
+  for (let y = Math.floor(cy - r / 2); y <= cy + r / 2; y++) for (let x = Math.floor(cx - r / 2); x <= cx + r / 2; x++) {
+    if (x < 0 || y < 0 || x >= W2 || y >= H2 || (x + 0.5 - cx) ** 2 + (y + 0.5 - cy) ** 2 > (r / 2) ** 2 + 0.3) continue;
+    block[y * W2 + x] = on ? 1 : 0;
+  }
+  dirty();
+}
+function pickColor(p) {
+  const q = toPaint(p), d = pg.getImageData(clamp(q.x, 0, paint.width - 1), clamp(q.y, 0, paint.height - 1), 1, 1).data;
+  picker.set(d[3] ? rgbHex(d[0], d[1], d[2]) : doc.ground.color);
+}
+
+// ───────────── Мышь на карте ─────────────
+const TOOLS = [
+  ['select', 'Выбрать', 'V', 'Клик — выбрать объект, огонь или место, тяни — двигай. Delete — удалить.'],
+  ['brush', 'Кисть', 'B', 'Рисует землю выбранным цветом и фактурой.'],
+  ['road', 'Дорога', 'R', 'Клики — точки дороги, двойной клик или Enter — готово, Esc — отмена.'],
+  ['fill', 'Заливка', 'G', 'Заливает одинаковую область земли.'],
+  ['erase', 'Ластик', 'E', 'Стирает краску — видно цвет или картинку земли.'],
+  ['pick', 'Пипетка', 'I', 'Берёт цвет с земли.'],
+  ['wall', 'Стены', 'X', 'Красным — куда нельзя ходить. Правая кнопка — стереть. Дома и деревья мешают сами — по своему основанию.'],
+  ['place', 'Объект', 'O', 'Выбери объект справа и кликни, куда поставить — нижним краем.'],
+  ['light', 'Огонь', 'L', 'Клик — фонарь, костёр, окно. Светит, когда темно.'],
+  ['spot', 'Место', 'P', 'Клик — точка с названием: дверь, переход, разговор.'],
+  ['spawn', 'Герой', 'H', 'Клик — где герой появляется.'],
+];
+let hover = null, drag = null, panning = null, spaceDown = false;
+const worldAt = (e) => { const r = view.getBoundingClientRect(); return { x: (e.clientX - r.left) / cam.z + cam.x, y: (e.clientY - r.top) / cam.z + cam.y }; };
+function hitTest(p) {
+  const near = (o, r = 12 / cam.z) => Math.hypot(o.x - p.x, o.y - p.y) < r;
+  if (ui.showMarks) {
+    for (const L of doc.lights) if (near(L)) return { kind: 'light', item: L };
+    for (const s of doc.places) if (near(s)) return { kind: 'place', item: s };
+    if (near(doc.spawn)) return { kind: 'spawn', item: doc.spawn };
+  }
+  const objs = [...doc.objects].sort((a, b) => (b.flat ? -1e9 : b.y) - (a.flat ? -1e9 : a.y));
+  for (const o of objs) { const b = objBox(o); if (p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h) return { kind: 'object', item: o }; }
+  return null;
+}
+view.addEventListener('contextmenu', (e) => e.preventDefault());
+view.addEventListener('pointerdown', (e) => {
+  if (ui.play) return;
+  view.setPointerCapture(e.pointerId);
+  const p = worldAt(e), right = e.button === 2;
+  if (e.button === 1 || spaceDown) { panning = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y }; return; }
+  switch (ui.tool) {
+    case 'select': {
+      const h = hitTest(p); ui.sel = h; buildSel();
+      if (h) { remember(); drag = { item: h.item, dx: p.x - h.item.x, dy: p.y - h.item.y, moved: false }; }
+      break;
+    }
+    case 'brush': case 'erase': strokeStart(p, ui.tool === 'erase' || right); break;
+    case 'fill': fillAt(p); break;
+    case 'pick': pickColor(p); break;
+    case 'road': if (right) { road = []; dirty(); } else road.push([p.x, p.y]); break;
+    case 'wall': remember(); drag = { wall: !right }; wallAt(p, !right); break;
+    case 'place': {
+      if (!ui.placing) { alert('Сначала выбери объект в списке справа'); break; }
+      const l = libById(ui.placing); remember();
+      const s = l.scale || 2, o = { id: uid(), lib: l.id, x: Math.round(p.x), y: Math.round(p.y), scale: s, flip: false, solid: l.solid !== false, flat: !!l.flat, foot: l.foot ? l.foot.slice() : defaultFoot(l, s) };
+      doc.objects.push(o); dirty(); autosave(); break;
+    }
+    case 'light': { remember(); const L = { x: Math.round(p.x), y: Math.round(p.y), r: ui.lightR, color: picker.value, flicker: ui.flick }; doc.lights.push(L); ui.sel = { kind: 'light', item: L }; buildSel(); dirty(); autosave(); break; }
+    case 'spot': { remember(); const s = { x: Math.round(p.x), y: Math.round(p.y), name: 'Новое место', scene: '', to: '' }; doc.places.push(s); ui.sel = { kind: 'place', item: s }; buildSel(); dirty(); autosave(); break; }
+    case 'spawn': remember(); doc.spawn = { x: Math.round(p.x), y: Math.round(p.y) }; dirty(); autosave(); break;
+  }
+});
+view.addEventListener('pointermove', (e) => {
+  hover = worldAt(e); showStatus();
+  if (panning) { cam.x = panning.cx - (e.clientX - panning.x) / cam.z; cam.y = panning.cy - (e.clientY - panning.y) / cam.z; dirty(); return; }
+  if (stroke) { strokeTo(hover); return; }
+  if (drag?.item) { drag.item.x = Math.round(hover.x - drag.dx); drag.item.y = Math.round(hover.y - drag.dy); drag.moved = true; dirty(); return; }
+  if (drag && 'wall' in drag) { wallAt(hover, drag.wall); return; }
+  if (ui.tool !== 'select') dirty();
+});
+view.addEventListener('pointerup', () => {
+  if (stroke) { stroke = null; autosave(); }
+  if (drag) { if (drag.item && !drag.moved) undo.pop(); else autosave(); if (drag.item) buildSel(); }
+  drag = null; panning = null;
+});
+view.addEventListener('dblclick', () => { if (ui.tool === 'road') { road.pop(); finishRoad(); } });
+view.addEventListener('pointerleave', () => { hover = null; dirty(); });
+view.addEventListener('wheel', (e) => {
+  e.preventDefault(); const p = worldAt(e), z = clamp(cam.z * (e.deltaY < 0 ? 1.15 : 1 / 1.15), 0.15, 6);
+  const r = view.getBoundingClientRect(); cam.z = z; cam.x = p.x - (e.clientX - r.left) / z; cam.y = p.y - (e.clientY - r.top) / z; $('zoomVal').textContent = Math.round(z * 100) + '%'; dirty();
+}, { passive: false });
+const zoomBy = (k) => { const r = view.getBoundingClientRect(), cx = cam.x + r.width / 2 / cam.z, cy = cam.y + r.height / 2 / cam.z; cam.z = clamp(cam.z * k, 0.15, 6); cam.x = cx - r.width / 2 / cam.z; cam.y = cy - r.height / 2 / cam.z; $('zoomVal').textContent = Math.round(cam.z * 100) + '%'; dirty(); };
+$('zoomIn').onclick = () => zoomBy(1.25); $('zoomOut').onclick = () => zoomBy(0.8);
+$('zoomVal').ondblclick = () => fitView();
+function fitView() { const r = view.getBoundingClientRect(); cam.z = clamp(Math.min(r.width / mapW(), r.height / mapH()) * 0.95, 0.15, 6); cam.x = (mapW() - r.width / cam.z) / 2; cam.y = (mapH() - r.height / cam.z) / 2; $('zoomVal').textContent = Math.round(cam.z * 100) + '%'; dirty(); }
+function showStatus() {
+  const tool = TOOLS.find((t) => t[0] === ui.tool);
+  const at = hover ? ` · x ${Math.round(hover.x)}, y ${Math.round(hover.y)}` : '';
+  $('status').innerHTML = ui.play ? `<b>${doc.name}</b> · ${clock(play.hour)}` : `<b>${tool[1]}</b>${at} · колесо — масштаб, пробел + мышь или средняя кнопка — двигать карту`;
+}
+
+// ───────────── Панели ─────────────
+const picker = new Picker($('mainPicker'));
+picker.set('#3c5a2a');
+const PRESETS = [['Трава', '#3c5a2a', 'grass'], ['Тёмная трава', '#25361d', 'grass'], ['Земля', '#5a4632', 'dirt'], ['Тропа', '#6a5640', 'dirt'], ['Брусчатка', '#5c5852', 'stone'], ['Камень', '#46484c', 'stone'], ['Песок', '#a08a62', 'sand'], ['Вода', '#1e3a4a', 'water'], ['Болото', '#2e3a26', 'water'], ['Снег', '#d8dde2', 'sand'], ['Доски', '#6a4a2e', 'wood'], ['Пепел', '#4a4642', 'dirt'], ['Грязь', '#3a2e22', 'dirt'], ['Мох', '#3a4a22', 'grass'], ['Глина', '#7a4a30', 'dirt'], ['Тьма', '#101014', 'flat']];
+function buildTools() {
+  $('toolRow').replaceChildren(...TOOLS.map(([k, n, key]) => Object.assign(document.createElement('button'), { textContent: n, title: `${n} (${key})`, className: ui.tool === k ? 'on' : '', onclick: () => setTool(k) })));
+  const t = ui.tool, o = $('toolOpts'); o.innerHTML = '';
+  const range = (label, key, min, max, step = 1, after = '') => { const w = document.createElement('div'); w.className = 'grid2'; w.style.marginTop = '8px'; w.innerHTML = `${label} <span class="row"><input type="range" min="${min}" max="${max}" step="${step}" value="${ui[key]}" style="width:120px"> <b>${ui[key]}</b>${after}</span>`; const r = w.querySelector('input'), b = w.querySelector('b'); r.oninput = () => { ui[key] = +r.value; b.textContent = r.value; dirty(); }; o.append(w); };
+  if (t === 'brush' || t === 'erase') range('Кисть', 'size', 1, 60);
+  if (t === 'wall') range('Кисть', 'size', 1, 24);
+  if (t === 'road') { range('Ширина', 'roadW', 2, 60); const w = document.createElement('div'); w.className = 'row'; w.style.marginTop = '6px'; w.innerHTML = `<label><input type="checkbox" ${ui.edges ? 'checked' : ''}> края темнее</label>`; w.querySelector('input').onchange = (e) => { ui.edges = e.target.checked; }; o.append(w); }
+  if (t === 'light') { range('Радиус', 'lightR', 16, 400); range('Мерцание', 'flick', 0, 1, 0.1); }
+  if (t === 'brush' || t === 'road' || t === 'fill') {
+    const h = document.createElement('h3'); h.textContent = 'Фактура'; o.append(h);
+    const row = document.createElement('div'); row.className = 'row';
+    row.append(...TEXTURES.map(([k, n]) => Object.assign(document.createElement('button'), { textContent: n, className: ui.texture === k ? 'on' : '', onclick: () => { ui.texture = k; buildTools(); } })));
+    o.append(row);
+  }
+  $('toolHint').textContent = TOOLS.find((x) => x[0] === t)[3];
+  showStatus();
+}
+function setTool(k) { if (ui.tool === 'road' && k !== 'road') { road = []; } ui.tool = k; buildTools(); dirty(); }
+function buildSwatches() {
+  $('presetRow').replaceChildren(...PRESETS.map(([n, c, tex]) => { const b = Object.assign(document.createElement('button'), { title: n, onclick: () => { picker.set(c); ui.texture = tex; if (!['brush', 'road', 'fill'].includes(ui.tool)) ui.tool = 'brush'; buildTools(); } }); b.style.background = c; return b; }));
+  $('mineRow').replaceChildren(...doc.colors.map((c, i) => { const b = Object.assign(document.createElement('button'), { title: c + ' — правая кнопка убирает', onclick: () => picker.set(c), oncontextmenu: (e) => { e.preventDefault(); doc.colors.splice(i, 1); buildSwatches(); autosave(); } }); b.style.background = c; return b; }));
+}
+$('btnAddMine').onclick = () => { const c = picker.value; if (!doc.colors.includes(c)) doc.colors.push(c); buildSwatches(); autosave(); };
+
+function buildMap() {
+  $('mapName').value = doc.name; $('mapCols').value = doc.cols; $('mapRows').value = doc.rows;
+  $('mapSizeHint').textContent = `${mapW()}×${mapH()} точек. Клетка — 32 точки, герой ростом в две клетки.`;
+  $('groundSw').style.background = doc.ground.color;
+  $('groundImgOpts').hidden = !doc.ground.image; $('groundScale').value = doc.ground.scale;
+  $('timeHour').value = doc.time.hour; $('timeText').textContent = clock(doc.time.hour); $('timeCycle').checked = doc.time.cycle; $('timeMinutes').value = doc.time.minutes;
+}
+$('mapName').oninput = (e) => { doc.name = e.target.value || 'Без имени'; autosave(); };
+$('btnResize').onclick = () => {
+  const c = clamp(+$('mapCols').value | 0, 8, 200), r = clamp(+$('mapRows').value | 0, 8, 200); if (c === doc.cols && r === doc.rows) return;
+  if ((c < doc.cols || r < doc.rows) && !confirm('Карта станет меньше — что за краем, пропадёт. Дальше?')) { buildMap(); return; }
+  const center = $('mapAnchor').value === 'c', ox = center ? Math.round((c - doc.cols) / 2) * TILE : 0, oy = center ? Math.round((r - doc.rows) / 2) * TILE : 0;
+  const oldPaint = paint, oldBlock = block, oldBW = bw(), oldBH = bh();
+  doc.cols = c; doc.rows = r; resetLayers();
+  pg.drawImage(oldPaint, ox / DOT, oy / DOT);
+  const bx = ox / CELL, by = oy / CELL;
+  for (let y = 0; y < oldBH; y++) for (let x = 0; x < oldBW; x++) { const nx = x + bx, ny = y + by; if (oldBlock[y * oldBW + x] && nx >= 0 && ny >= 0 && nx < bw() && ny < bh()) block[ny * bw() + nx] = 1; }
+  for (const list of [doc.objects, doc.lights, doc.places]) for (const o of list) { o.x += ox; o.y += oy; }
+  doc.spawn.x += ox; doc.spawn.y += oy;
+  undo.length = redo.length = 0; buildMap(); fitView(); autosave();
+};
+$('btnGroundColor').onclick = () => { doc.ground.color = picker.value; buildMap(); dirty(); autosave(); };
+$('btnGroundImg').onclick = () => $('fileGround').click();
+$('fileGround').onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; await setGroundImage(await readFile(f)); };
+async function setGroundImage(src) { doc.ground.image = src; groundImg = await loadImage(src); buildMap(); dirty(); autosave(); }
+$('btnGroundFit').onclick = () => {
+  if (!groundImg) { alert('Сначала выбери картинку земли'); return; }
+  $('mapCols').value = Math.ceil(groundImg.width * doc.ground.scale / TILE); $('mapRows').value = Math.ceil(groundImg.height * doc.ground.scale / TILE); $('mapAnchor').value = 'tl'; $('btnResize').onclick();
+};
+$('btnGroundDel').onclick = () => { doc.ground.image = null; groundImg = null; buildMap(); dirty(); autosave(); };
+$('groundScale').oninput = (e) => { doc.ground.scale = clamp(+e.target.value || 1, 0.25, 8); dirty(); autosave(); };
+$('timeHour').oninput = (e) => { doc.time.hour = +e.target.value; $('timeText').textContent = clock(doc.time.hour); if (!ui.showTime) { ui.showTime = true; $('optTime').checked = true; } dirty(); autosave(); };
+$('timeCycle').onchange = (e) => { doc.time.cycle = e.target.checked; autosave(); };
+$('timeMinutes').oninput = (e) => { doc.time.minutes = clamp(+e.target.value || 12, 1, 120); autosave(); };
+$('optGrid').onchange = (e) => { ui.showGrid = e.target.checked; dirty(); };
+$('optBlock').onchange = (e) => { ui.showBlock = e.target.checked; dirty(); };
+$('optMarks').onchange = (e) => { ui.showMarks = e.target.checked; dirty(); };
+$('optTime').onchange = (e) => { ui.showTime = e.target.checked; dirty(); };
+
+// Свойства выбранного
+function buildSel() {
+  const box = $('selBox'), s = ui.sel;
+  if (!s) { box.innerHTML = '<p class="hint">Инструмент «Выбрать» — клик по объекту, огню или месту.</p>'; return; }
+  const f = (label, html) => `${label} ${html}`;
+  const it = s.item;
+  if (s.kind === 'object') {
+    const l = libById(it.lib);
+    box.innerHTML = `<div class="grid2">${f('Объект', `<b>${l?.name || '?'}</b>`)}${f('Увеличение', `<input type="number" data-k="scale" min="0.25" max="8" step="0.25" value="${it.scale}">`)}
+      ${f('Мешает ходить', `<label><input type="checkbox" data-k="solid" ${it.solid !== false ? 'checked' : ''}> основание</label>`)}
+      ${f('На земле', `<label title="Ковёр, лужа, тень — всегда под героем"><input type="checkbox" data-k="flat" ${it.flat ? 'checked' : ''}> плоский</label>`)}
+      ${f('Основание', `<span class="row"><input type="number" data-f="2" value="${it.foot[2]}" title="ширина"> × <input type="number" data-f="3" value="${it.foot[3]}" title="высота"></span>`)}
+      ${f('Сдвиг', `<span class="row"><input type="number" data-f="0" value="${it.foot[0]}" title="влево-вправо"> <input type="number" data-f="1" value="${it.foot[1]}" title="вверх-вниз"></span>`)}</div>
+      <div class="row" style="margin-top:6px"><button data-a="flip">Отразить</button><button data-a="dup">Копия</button><button data-a="foot">Основание заново</button><button data-a="del">Удалить</button></div>
+      <p class="hint">Основание — оранжевая рамка: туда герой не пройдёт. Выше основания объект закрывает героя сам.</p>`;
+  } else if (s.kind === 'light') {
+    box.innerHTML = `<div class="grid2">${f('Огонь', `<i style="width:26px;height:22px;border-radius:6px;border:2px solid var(--outline);background:${it.color}"></i>`)}${f('Радиус', `<input type="number" data-k="r" min="8" max="600" value="${it.r}">`)}${f('Мерцание', `<input type="number" data-k="flicker" min="0" max="1" step="0.1" value="${it.flicker}">`)}</div>
+      <div class="row" style="margin-top:6px"><button data-a="color">Взять цвет</button><button data-a="del">Удалить</button></div>`;
+  } else if (s.kind === 'place') {
+    box.innerHTML = `<div class="grid2">${f('Название', `<input type="text" data-k="name" value="${(it.name || '').replace(/"/g, '&quot;')}">`)}${f('Сцена', `<input type="text" data-k="scene" value="${it.scene || ''}" placeholder="например shop">`)}${f('Переход', `<input type="text" data-k="to" value="${it.to || ''}" placeholder="карта, куда ведёт">`)}</div>
+      <div class="row" style="margin-top:6px"><button data-a="del">Удалить</button></div><p class="hint">Сцена — из story.js, переход — имя другой карты. Можно оставить пустым: я допишу.</p>`;
+  } else box.innerHTML = '<p class="hint">Здесь герой появляется. Тяни, чтобы подвинуть.</p>';
+  for (const inp of box.querySelectorAll('[data-k]')) inp.onchange = inp.oninput = () => {
+    if (inp.type === 'checkbox') it[inp.dataset.k] = inp.checked; else it[inp.dataset.k] = inp.type === 'number' ? +inp.value : inp.value;
+    if (inp.dataset.k === 'scale') { const l = libById(it.lib); it.foot = defaultFoot(l, it.scale); buildSel(); }
+    dirty(); autosave();
+  };
+  for (const inp of box.querySelectorAll('[data-f]')) inp.oninput = () => { it.foot[+inp.dataset.f] = +inp.value; dirty(); autosave(); };
+  for (const b of box.querySelectorAll('[data-a]')) b.onclick = () => {
+    const a = b.dataset.a; remember();
+    if (a === 'del') { const list = s.kind === 'object' ? doc.objects : s.kind === 'light' ? doc.lights : doc.places; list.splice(list.indexOf(it), 1); ui.sel = null; }
+    if (a === 'flip') it.flip = !it.flip;
+    if (a === 'dup') { const c = { ...structuredClone(it), id: uid(), x: it.x + 24, y: it.y + 8 }; doc.objects.push(c); ui.sel = { kind: 'object', item: c }; }
+    if (a === 'foot') it.foot = defaultFoot(libById(it.lib), it.scale);
+    if (a === 'color') it.color = picker.value;
+    buildSel(); dirty(); autosave();
+  };
+}
+
+// ───────────── Объекты: список ─────────────
+// Папки: у объекта folder, «Все» — без отбора. Выбранный объект — карточка под списком
+const FOLDERS = ['Земля', 'Природа', 'Здания', 'Предметы', 'Персонажи', 'Разное'];
+let libFolder = '';
+const folderOf = (l) => l.folder || 'Разное';
+function buildLib() {
+  const folders = [...new Set([...FOLDERS, ...doc.lib.map(folderOf)])];
+  const count = (f) => doc.lib.filter((l) => folderOf(l) === f).length;
+  $('libFolder').replaceChildren(new Option(`Все (${doc.lib.length})`, ''), ...folders.filter(count).map((f) => new Option(`${f} (${count(f)})`, f)));
+  if (libFolder && !count(libFolder)) libFolder = '';
+  $('libFolder').value = libFolder;
+  $('folderList').replaceChildren(...folders.map((f) => new Option(f)));
+  $('libRow').replaceChildren(...doc.lib.filter((l) => !libFolder || folderOf(l) === libFolder).map((l) => {
+    const b = Object.assign(document.createElement('button'), { className: ui.placing === l.id ? 'on' : '', title: `${l.name}${l.source ? ' · ' + l.source : ''} — клик: ставить на карту` });
+    const img = new Image(); img.src = l.src; const sp = document.createElement('span'); sp.textContent = l.name;
+    b.append(img, sp);
+    b.onclick = b.oncontextmenu = (e) => { e.preventDefault(); ui.placing = l.id; setTool('place'); buildLib(); };
+    return b;
+  }));
+  buildLibInfo();
+}
+function buildLibInfo() {
+  const l = ui.placing && libById(ui.placing), box = $('libInfo');
+  if (!l) { box.innerHTML = ''; return; }
+  const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  box.innerHTML = `<div class="grid2">Имя <input type="text" data-k="name" value="${esc(l.name)}">Папка <input type="text" data-k="folder" list="folderList" value="${esc(folderOf(l))}">
+    Откуда <input type="text" data-k="source" value="${esc(l.source)}" placeholder="своё / набор, автор, ссылка">Увеличение <input type="number" data-k="scale" min="0.25" max="8" step="0.25" value="${l.scale || 2}"></div>
+    <p class="hint">${l.w}×${l.h} точек картинки · на карте ${Math.round(l.w * (l.scale || 2))}×${Math.round(l.h * (l.scale || 2))}. Увеличение — для новых, уже стоящие не меняются.</p>
+    <div class="row" style="margin-top:6px">${l.px ? '<button data-a="edit">Дорисовать</button>' : ''}<button data-a="all">Поменять у всех на карте</button><button data-a="del">Удалить</button></div>`;
+  for (const inp of box.querySelectorAll('[data-k]')) inp.onchange = () => {
+    const k = inp.dataset.k; l[k] = k === 'scale' ? clamp(+inp.value || 2, 0.25, 8) : inp.value.trim();
+    if (k === 'folder' && !l.folder) l.folder = 'Разное';
+    buildLib(); autosave();
+  };
+  for (const b of box.querySelectorAll('[data-a]')) b.onclick = () => {
+    const a = b.dataset.a;
+    if (a === 'edit') openObjEditor(l);
+    if (a === 'all') { remember(); for (const o of doc.objects) if (o.lib === l.id) { o.scale = l.scale || 2; o.foot = defaultFoot(l, o.scale); } dirty(); autosave(); }
+    if (a === 'del') {
+      const used = doc.objects.filter((o) => o.lib === l.id).length;
+      if (!confirm(used ? `Удалить «${l.name}» и все ${used} на карте?` : `Удалить «${l.name}»?`)) return;
+      doc.objects = doc.objects.filter((o) => o.lib !== l.id); doc.lib = doc.lib.filter((x) => x !== l); ui.placing = null;
+      ui.sel = null; undo.length = redo.length = 0; buildLib(); buildSel(); dirty(); autosave();
+    }
+  };
+}
+$('libFolder').onchange = (e) => { libFolder = e.target.value; buildLib(); };
+// Список «откуда взято» — готовые строки для docs/assets.md
+$('btnSources').onclick = () => {
+  const by = new Map(); for (const l of doc.lib) { const s = l.source || 'своё'; by.set(s, [...(by.get(s) || []), l.name]); }
+  const text = [...by].map(([s, names]) => `${s}: ${names.length} — ${names.slice(0, 8).join(', ')}${names.length > 8 ? '…' : ''}`).join('\n');
+  prompt('Откуда взяты объекты (можно скопировать):', text.replace(/\n/g, ' | ') || 'пока ничего');
+};
+async function addLib(entry) { await libImage(entry); doc.lib.push(entry); ui.placing = entry.id; if (entry.folder) libFolder = entry.folder; setTool('place'); buildLib(); autosave(); }
+// Много картинок разом: каждая — объект как есть (фон уже прозрачный). Папка — из имени папки или спрашиваем
+async function addMany(files, folderGuess = '') {
+  files = [...files].filter((f) => f.type.startsWith('image/')); if (!files.length) return;
+  const folder = (prompt(`Добавить ${files.length} картинок. В какую папку?`, folderGuess || 'Разное') || '').trim(); if (!folder) return;
+  const source = (prompt('Откуда они — набор, автор, ссылка? (для docs/assets.md, можно пусто)', '') || '').trim();
+  const scale = clamp(+(prompt('Увеличение на карте (2 — как картинки из ChatGPT, 1 — как есть)', '2') || 2), 0.25, 8);
+  let n = 0;
+  for (const f of files) {
+    try {
+      const src = await readFile(f), img = await loadImage(src), e = { id: uid(), name: f.name.replace(/\.[a-z0-9]+$/i, ''), src, w: img.width, h: img.height, scale, folder, source };
+      imgCache.set(src, img); doc.lib.push(e); n++;
+    } catch {}
+  }
+  libFolder = folder; buildLib(); autosave();
+  $('status').innerHTML = `Добавлено <b>${n}</b> в папку «${folder}»`;
+}
+$('btnPack').onclick = () => $('filePack').click();
+$('btnPackDir').onclick = () => $('filePackDir').click();
+$('filePack').onchange = (e) => { addMany(e.target.files); e.target.value = ''; };
+$('filePackDir').onchange = (e) => { const f = e.target.files; addMany(f, f[0]?.webkitRelativePath?.split('/')[0] || ''); e.target.value = ''; };
+
+// ───────────── Рисование объекта по точкам ─────────────
+// Точки — цвета '#rrggbb' или null. «Контур» и «Объём» кладутся при сборке картинки и не портят рисунок
+const oe = { w: 64, h: 64, px: [], tool: 'pen', brush: 1, mirror: false, outline: true, shade: true, edit: null, undo: [], redo: [], recent: [], cell: 8, ox: 0, oy: 0, drag: null, hover: null };
+const objPicker = new Picker($('objPicker'));
+objPicker.set('#5a4030');
+function bakeObject(px, w, h, outline, shadeOn) {
+  const c = newCanvas(w, h), g = c.getContext('2d'), img = g.createImageData(w, h), d = img.data;
+  const at = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? null : px[y * w + x]);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const m = at(x, y), i = (y * w + x) * 4;
+    if (!m) { if (outline && (at(x - 1, y) || at(x + 1, y) || at(x, y - 1) || at(x, y + 1))) { d[i] = 8; d[i + 1] = 7; d[i + 2] = 10; d[i + 3] = 255; } continue; }
+    let c3 = hexRgb(m);
+    if (shadeOn) { if (at(x - 1, y) !== m || at(x, y - 1) !== m) c3 = mixRgb(c3, 0.16, 255); else if (at(x + 1, y) !== m || at(x, y + 1) !== m) c3 = mixRgb(c3, 0.24); }
+    d[i] = c3[0]; d[i + 1] = c3[1]; d[i + 2] = c3[2]; d[i + 3] = 255;
+  }
+  g.putImageData(img, 0, 0); return c;
+}
+const OTOOLS = [['pen', 'Карандаш'], ['eraser', 'Ластик'], ['fill', 'Заливка'], ['line', 'Линия'], ['rect', 'Прямоуг.'], ['picker', 'Пипетка']];
+function buildObjTools() {
+  $('objTools').replaceChildren(...OTOOLS.map(([k, n]) => Object.assign(document.createElement('button'), { textContent: n, className: oe.tool === k ? 'on' : '', onclick: () => { oe.tool = k; buildObjTools(); } })));
+  $('objBrush').replaceChildren(...[1, 2, 3, 5].map((n) => Object.assign(document.createElement('button'), { textContent: n + '×' + n, className: oe.brush === n ? 'on' : '', onclick: () => { oe.brush = n; buildObjTools(); } })));
+  $('objRecent').replaceChildren(...oe.recent.map((c) => { const b = Object.assign(document.createElement('button'), { title: c, onclick: () => objPicker.set(c) }); b.style.background = c; return b; }));
+  $('objMirror').checked = oe.mirror; $('objOutline').checked = oe.outline; $('objShade').checked = oe.shade;
+}
+function openObjEditor(entry = null) {
+  oe.edit = entry; oe.undo = []; oe.redo = [];
+  if (entry?.px) { oe.w = entry.px.w; oe.h = entry.px.h; oe.px = entry.px.data.map((v) => v || null); oe.outline = entry.px.outline; oe.shade = entry.px.shade; $('objName').value = entry.name; }
+  else { oe.w = 48; oe.h = 64; oe.px = new Array(oe.w * oe.h).fill(null); $('objName').value = 'Объект'; }
+  oe.recent = [...new Set([...doc.colors, ...oe.recent])].slice(0, 16);
+  $('objW').value = oe.w; $('objH').value = oe.h; buildObjTools(); $('objDlg').showModal(); objLayout();
+}
+const objCanvas = $('objCanvas'), og = objCanvas.getContext('2d');
+function objLayout() {
+  const r = objCanvas.getBoundingClientRect(), d = window.devicePixelRatio || 1; objCanvas.width = Math.round(r.width * d); objCanvas.height = Math.round(r.height * d);
+  oe.cell = Math.max(2, Math.floor(Math.min((objCanvas.width - 20) / oe.w, (objCanvas.height - 20) / oe.h)));
+  oe.ox = Math.floor((objCanvas.width - oe.cell * oe.w) / 2); oe.oy = Math.floor((objCanvas.height - oe.cell * oe.h) / 2); objDraw();
+}
+function objDraw(preview) {
+  const g = og, px = preview || oe.px, c = oe.cell;
+  g.fillStyle = '#07060a'; g.fillRect(0, 0, objCanvas.width, objCanvas.height);
+  for (let y = 0; y < oe.h; y++) for (let x = 0; x < oe.w; x++) { g.fillStyle = (x + y) % 2 ? '#1a1820' : '#16141b'; g.fillRect(oe.ox + x * c, oe.oy + y * c, c, c); }
+  g.imageSmoothingEnabled = false; g.drawImage(bakeObject(px, oe.w, oe.h, oe.outline, oe.shade), oe.ox, oe.oy, oe.w * c, oe.h * c);
+  if (c >= 6) { g.strokeStyle = 'rgba(255,255,255,0.06)'; g.beginPath(); for (let x = 0; x <= oe.w; x++) { g.moveTo(oe.ox + x * c + 0.5, oe.oy); g.lineTo(oe.ox + x * c + 0.5, oe.oy + oe.h * c); } for (let y = 0; y <= oe.h; y++) { g.moveTo(oe.ox, oe.oy + y * c + 0.5); g.lineTo(oe.ox + oe.w * c, oe.oy + y * c + 0.5); } g.stroke(); }
+  if (oe.mirror) { g.strokeStyle = 'rgba(242,196,90,0.7)'; g.lineWidth = 2; g.beginPath(); g.moveTo(oe.ox + oe.w / 2 * c, oe.oy); g.lineTo(oe.ox + oe.w / 2 * c, oe.oy + oe.h * c); g.stroke(); g.lineWidth = 1; }
+  g.strokeStyle = 'rgba(242,196,90,0.5)'; g.strokeRect(oe.ox + 0.5, oe.oy + 0.5, oe.w * c, oe.h * c);
+  if (oe.hover) { g.strokeStyle = '#f2c45a'; g.strokeRect(oe.ox + oe.hover.x * c + 1, oe.oy + oe.hover.y * c + 1, c * oe.brush - 2, c * oe.brush - 2); }
+}
+const objCell = (e) => { const r = objCanvas.getBoundingClientRect(), d = objCanvas.width / r.width, x = Math.floor(((e.clientX - r.left) * d - oe.ox) / oe.cell), y = Math.floor(((e.clientY - r.top) * d - oe.oy) / oe.cell); return x >= 0 && y >= 0 && x < oe.w && y < oe.h ? { x, y } : null; };
+function objPut(px, x, y, v) {
+  const o = Math.floor((oe.brush - 1) / 2);
+  for (let j = 0; j < oe.brush; j++) for (let i = 0; i < oe.brush; i++) for (const xx of oe.mirror ? [x - o + i, oe.w - 1 - (x - o + i)] : [x - o + i]) { const yy = y - o + j; if (xx >= 0 && yy >= 0 && xx < oe.w && yy < oe.h) px[yy * oe.w + xx] = v; }
+}
+const objLine = (a, b) => { const out = []; let x = a.x, y = a.y; const dx = Math.abs(b.x - x), dy = -Math.abs(b.y - y), sx = x < b.x ? 1 : -1, sy = y < b.y ? 1 : -1; let err = dx + dy; for (;;) { out.push({ x, y }); if (x === b.x && y === b.y) break; const e2 = 2 * err; if (e2 >= dy) { err += dy; x += sx; } if (e2 <= dx) { err += dx; y += sy; } } return out; };
+function objShape(px, a, b, v) {
+  if (oe.tool === 'line') for (const c of objLine(a, b)) objPut(px, c.x, c.y, v);
+  else for (let y = Math.min(a.y, b.y); y <= Math.max(a.y, b.y); y++) for (let x = Math.min(a.x, b.x); x <= Math.max(a.x, b.x); x++) { px[y * oe.w + x] = v; if (oe.mirror) px[y * oe.w + oe.w - 1 - x] = v; }
+}
+const objRemember = () => { oe.undo.push(oe.px.slice()); if (oe.undo.length > 100) oe.undo.shift(); oe.redo = []; };
+const useColor = () => { const c = objPicker.value; oe.recent = [c, ...oe.recent.filter((x) => x !== c)].slice(0, 16); buildObjTools(); return c; };
+objCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
+objCanvas.addEventListener('pointerdown', (e) => {
+  const c = objCell(e); if (!c) return; objCanvas.setPointerCapture(e.pointerId);
+  const erase = e.button === 2 || oe.tool === 'eraser';
+  if (oe.tool === 'picker') { const v = oe.px[c.y * oe.w + c.x]; if (v) { objPicker.set(v); oe.tool = 'pen'; buildObjTools(); } return; }
+  const v = erase ? null : useColor(); objRemember();
+  if (oe.tool === 'fill') {
+    const from = oe.px[c.y * oe.w + c.x]; if (from === v) return; const st = [[c.x, c.y]];
+    while (st.length) { const [x, y] = st.pop(); if (x < 0 || y < 0 || x >= oe.w || y >= oe.h || oe.px[y * oe.w + x] !== from) continue; oe.px[y * oe.w + x] = v; st.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]); }
+    objDraw(); return;
+  }
+  if (oe.tool === 'line' || oe.tool === 'rect') { oe.drag = { start: c, v, shape: true }; return; }
+  oe.drag = { last: c, v }; objPut(oe.px, c.x, c.y, v); objDraw();
+});
+objCanvas.addEventListener('pointermove', (e) => {
+  oe.hover = objCell(e);
+  if (!oe.drag || !oe.hover) { objDraw(); return; }
+  if (oe.drag.shape) { const px = oe.px.slice(); objShape(px, oe.drag.start, oe.hover, oe.drag.v); objDraw(px); return; }
+  for (const c of objLine(oe.drag.last, oe.hover)) objPut(oe.px, c.x, c.y, oe.drag.v);
+  oe.drag.last = oe.hover; objDraw();
+});
+objCanvas.addEventListener('pointerup', (e) => { if (oe.drag?.shape) objShape(oe.px, oe.drag.start, objCell(e) || oe.drag.start, oe.drag.v); oe.drag = null; objDraw(); });
+$('objMirror').onchange = (e) => { oe.mirror = e.target.checked; objDraw(); };
+$('objOutline').onchange = (e) => { oe.outline = e.target.checked; objDraw(); };
+$('objShade').onchange = (e) => { oe.shade = e.target.checked; objDraw(); };
+$('objResize').onclick = () => {
+  const w = clamp(+$('objW').value | 0, 4, 256), h = clamp(+$('objH').value | 0, 4, 256); objRemember();
+  // Рисунок остаётся внизу посередине — там основание
+  const out = new Array(w * h).fill(null), dx = Math.floor((w - oe.w) / 2), dy = h - oe.h;
+  for (let y = 0; y < oe.h; y++) for (let x = 0; x < oe.w; x++) { const nx = x + dx, ny = y + dy; if (nx >= 0 && ny >= 0 && nx < w && ny < h) out[ny * w + nx] = oe.px[y * oe.w + x]; }
+  oe.w = w; oe.h = h; oe.px = out; objLayout();
+};
+$('objCancel').onclick = () => $('objDlg').close();
+$('objDone').onclick = async () => {
+  const src = bakeObject(oe.px, oe.w, oe.h, oe.outline, oe.shade).toDataURL(), name = $('objName').value || 'Объект';
+  const px = { w: oe.w, h: oe.h, data: oe.px.map((v) => v || ''), outline: oe.outline, shade: oe.shade };
+  if (oe.edit) {
+    const l = oe.edit, sizeChanged = l.w !== oe.w || l.h !== oe.h; Object.assign(l, { name, src, w: oe.w, h: oe.h, px }); await libImage(l);
+    if (sizeChanged) for (const o of doc.objects) if (o.lib === l.id) o.foot = defaultFoot(l, o.scale);
+    buildLib(); dirty(); autosave();
+  } else await addLib({ id: uid(), name, src, w: oe.w, h: oe.h, scale: DOT, px, folder: libFolder || 'Здания', source: 'своё' });
+  for (const c of oe.recent) if (!doc.colors.includes(c) && doc.colors.length < 32) doc.colors.push(c);
+  buildSwatches(); $('objDlg').close();
+};
+window.addEventListener('resize', () => { if ($('objDlg').open) objLayout(); });
+
+// ───────────── Картинка в объект ─────────────
+// Убираем фон кликом: точки похожего цвета — прозрачные (по умолчанию только те, что касаются края)
+const imp = { orig: null, work: null, view: { s: 1, ox: 0, oy: 0 } };
+const impCanvas = $('impCanvas'), ig = impCanvas.getContext('2d');
+async function openImport(src, name = 'Картинка') {
+  const img = await loadImage(src);
+  imp.orig = newCanvas(img.width, img.height); imp.orig.getContext('2d').drawImage(img, 0, 0);
+  imp.work = newCanvas(img.width, img.height); imp.work.getContext('2d').drawImage(img, 0, 0);
+  $('impName').value = name.replace(/\.[a-z0-9]+$/i, ''); $('impDown').value = '1'; $('impScale').value = doc.ground.scale || 2; if (!$('impFolder').value) $('impFolder').value = libFolder || 'Разное';
+  $('impDlg').showModal(); impDraw();
+}
+function impDraw() {
+  const r = impCanvas.getBoundingClientRect(), d = window.devicePixelRatio || 1; impCanvas.width = Math.round(r.width * d); impCanvas.height = Math.round(r.height * d);
+  const w = imp.work.width, h = imp.work.height, s = Math.min((impCanvas.width - 20) / w, (impCanvas.height - 20) / h);
+  imp.view = { s, ox: (impCanvas.width - w * s) / 2, oy: (impCanvas.height - h * s) / 2 };
+  for (let y = 0; y < impCanvas.height; y += 16) for (let x = 0; x < impCanvas.width; x += 16) { ig.fillStyle = (x + y) / 16 % 2 ? '#2a2630' : '#1e1b24'; ig.fillRect(x, y, 16, 16); }
+  ig.imageSmoothingEnabled = s < 1; ig.drawImage(imp.work, imp.view.ox, imp.view.oy, w * s, h * s);
+}
+impCanvas.addEventListener('pointerdown', (e) => {
+  const r = impCanvas.getBoundingClientRect(), d = impCanvas.width / r.width, x = Math.floor(((e.clientX - r.left) * d - imp.view.ox) / imp.view.s), y = Math.floor(((e.clientY - r.top) * d - imp.view.oy) / imp.view.s);
+  const w = imp.work.width, h = imp.work.height; if (x < 0 || y < 0 || x >= w || y >= h) return;
+  const g = imp.work.getContext('2d'), img = g.getImageData(0, 0, w, h), D = img.data, i0 = (y * w + x) * 4;
+  if (!D[i0 + 3]) return;
+  const bg = [D[i0], D[i0 + 1], D[i0 + 2]], tol = +$('impTol').value, close = (i) => D[i + 3] && Math.abs(D[i] - bg[0]) + Math.abs(D[i + 1] - bg[1]) + Math.abs(D[i + 2] - bg[2]) <= tol * 1.5;
+  if ($('impEdges').checked) {
+    // Заливка от всех краёв картинки и от точки клика
+    const seen = new Uint8Array(w * h), st = [x, y];
+    for (let k = 0; k < w; k++) st.push(k, 0, k, h - 1); for (let k = 0; k < h; k++) st.push(0, k, w - 1, k);
+    while (st.length) { const yy = st.pop(), xx = st.pop(); if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue; const k = yy * w + xx; if (seen[k]) continue; seen[k] = 1; const i = k * 4; if (!close(i)) continue; D[i + 3] = 0; st.push(xx + 1, yy, xx - 1, yy, xx, yy + 1, xx, yy - 1); }
+  } else for (let i = 0; i < D.length; i += 4) if (close(i)) D[i + 3] = 0;
+  // Ободок цвета фона на краях — приглушаем
+  for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
+    const i = (yy * w + xx) * 4; if (!D[i + 3]) continue;
+    const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([a, b]) => { const X = xx + a, Y = yy + b; return X < 0 || Y < 0 || X >= w || Y >= h || !D[(Y * w + X) * 4 + 3]; });
+    if (edge && Math.abs(D[i] - bg[0]) + Math.abs(D[i + 1] - bg[1]) + Math.abs(D[i + 2] - bg[2]) <= tol * 3) D[i + 3] = 0;
+  }
+  g.putImageData(img, 0, 0); impDraw();
+});
+$('impReset').onclick = () => { const g = imp.work.getContext('2d'); g.clearRect(0, 0, imp.work.width, imp.work.height); g.drawImage(imp.orig, 0, 0); impDraw(); };
+$('impCrop').onclick = () => {
+  const w = imp.work.width, h = imp.work.height, D = imp.work.getContext('2d').getImageData(0, 0, w, h).data;
+  let x0 = w, y0 = h, x1 = -1, y1 = -1;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (D[(y * w + x) * 4 + 3]) { x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); }
+  if (x1 < 0) return;
+  const c = newCanvas(x1 - x0 + 1, y1 - y0 + 1); c.getContext('2d').drawImage(imp.work, -x0, -y0); imp.work = c;
+  const o = newCanvas(c.width, c.height); o.getContext('2d').drawImage(imp.orig, -x0, -y0); imp.orig = o; impDraw();
+};
+$('impCancel').onclick = () => $('impDlg').close();
+const shrink = (c) => { const k = +$('impDown').value; if (k <= 1) return c; const s = newCanvas(Math.max(1, Math.round(c.width / k)), Math.max(1, Math.round(c.height / k))), g = s.getContext('2d'); g.imageSmoothingEnabled = true; g.imageSmoothingQuality = 'high'; g.drawImage(c, 0, 0, s.width, s.height); return s; };
+const impEntry = (c, name) => ({ id: uid(), name, src: c.toDataURL(), w: c.width, h: c.height, scale: clamp(+$('impScale').value || 2, 0.25, 8), folder: $('impFolder').value.trim() || 'Разное', source: $('impSource').value.trim() });
+$('impDone').onclick = async () => { await addLib(impEntry(shrink(imp.work), $('impName').value || 'Картинка')); $('impDlg').close(); };
+// Кусок листа — отдельный объект; пустые пропускаем
+async function addPieces(rects) {
+  const name = $('impName').value || 'Вещь'; let n = 0;
+  for (const [x, y, w, h] of rects) {
+    const c = newCanvas(w, h); c.getContext('2d').drawImage(imp.work, -x, -y);
+    const d = c.getContext('2d').getImageData(0, 0, w, h).data; let any = false; for (let i = 3; i < d.length; i += 4) if (d[i]) { any = true; break; }
+    if (!any) continue;
+    const e = impEntry(shrink(c), `${name} ${++n}`); await libImage(e); doc.lib.push(e);
+  }
+  libFolder = $('impFolder').value.trim() || 'Разное'; buildLib(); autosave(); $('impDlg').close();
+  $('status').innerHTML = n ? `Из листа — <b>${n}</b> вещей в папку «${libFolder}»` : 'На листе не нашлось вещей — сначала убери фон';
+}
+$('impSplit').onclick = () => {
+  // Острова непрозрачных точек; соседние ближе 3 точек — одна вещь. Совсем мелкие крошки отбрасываем
+  const w = imp.work.width, h = imp.work.height, D = imp.work.getContext('2d').getImageData(0, 0, w, h).data, seen = new Uint8Array(w * h), out = [], GAP = 3;
+  for (let s = 0; s < w * h; s++) {
+    if (seen[s] || !D[s * 4 + 3]) continue;
+    let x0 = w, y0 = h, x1 = 0, y1 = 0, area = 0; const st = [s]; seen[s] = 1;
+    while (st.length) {
+      const k = st.pop(), x = k % w, y = (k / w) | 0; area++; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
+      for (let dy = -GAP; dy <= GAP; dy++) for (let dx = -GAP; dx <= GAP; dx++) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const q = Y * w + X; if (!seen[q] && D[q * 4 + 3]) { seen[q] = 1; st.push(q); } }
+    }
+    if (area >= 24) out.push([x0, y0, x1 - x0 + 1, y1 - y0 + 1]);
+  }
+  if (out.length > 300 && !confirm(`Нашлось ${out.length} вещей — может, фон не убран? Всё равно добавить?`)) return;
+  out.sort((a, b) => a[1] - b[1] || a[0] - b[0]); addPieces(out);
+};
+$('impGrid').onclick = () => {
+  const gw = clamp(+$('impGW').value | 0, 4, 1024), gh = clamp(+$('impGH').value | 0, 4, 1024), rects = [];
+  for (let y = 0; y + gh <= imp.work.height; y += gh) for (let x = 0; x + gw <= imp.work.width; x += gw) rects.push([x, y, gw, gh]);
+  addPieces(rects);
+};
+async function importFile(f) { if (!f || !f.type.startsWith('image/')) return; await openImport(await readFile(f), f.name); }
+$('btnDraw').onclick = () => openObjEditor();
+$('btnImport').onclick = () => $('fileImage').click();
+$('fileImage').onchange = (e) => { importFile(e.target.files[0]); e.target.value = ''; };
+$('stage').addEventListener('dragover', (e) => e.preventDefault());
+$('stage').addEventListener('drop', (e) => { e.preventDefault(); const fs = e.dataTransfer.files; fs.length > 1 ? addMany(fs) : importFile(fs[0]); });
+window.addEventListener('paste', (e) => {
+  if (e.target.matches?.('input')) return;
+  const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
+  if (item) { e.preventDefault(); importFile(item.getAsFile()); }
+});
+
+// ───────────── Пройтись ─────────────
+const KNIGHT = {
+  idle: [0, 1].map((f) => figure((a) => front(a), CLOAKS['Красный'], f)),
+  down: [0, 1, 2, 3].map((p) => figure((a) => front(a, false, p), CLOAKS['Красный'], 10 + p)),
+  up: [0, 1, 2, 3].map((p) => figure((a) => back(a, p), CLOAKS['Красный'], 20 + p)),
+  left: [0, 1, 2, 3].map((p) => figure((a) => quarter(a, false, p), CLOAKS['Красный'], 30 + p)),
+  right: [0, 1, 2, 3].map((p) => figure((a) => quarter(a, false, p), CLOAKS['Красный'], 30 + p, true)),
+};
+const player = { x: 0, y: 0, dir: 'down', step: 0, moving: false };
+const play = { hour: 13, last: 0, timer: 0, keys: new Set() };
+function drawHero(g, h, t) {
+  const f = Math.floor(t / 420) % 2, img = h.moving ? KNIGHT[h.dir][Math.floor(h.step) % 4] : h.dir === 'down' ? KNIGHT.idle[f] : KNIGHT[h.dir][0];
+  g.fillStyle = 'rgba(0,0,0,0.45)'; g.beginPath(); g.ellipse(h.x, h.y, 12, 3.5, 0, 0, Math.PI * 2); g.fill();
+  g.drawImage(img, Math.round(h.x - W / 2), Math.round(h.y - 62));
+}
+function blockedAt(x, y) {
+  if (x < 0 || y < 0 || x >= mapW() || y >= mapH()) return true;
+  if (block[Math.floor(y / CELL) * bw() + Math.floor(x / CELL)]) return true;
+  for (const o of doc.objects) { if (o.solid === false || o.flat) continue; const [dx, dy, fw, fh] = o.foot; if (x >= o.x + dx && x < o.x + dx + fw && y >= o.y + dy && y < o.y + dy + fh) return true; }
+  return false;
+}
+const canStand = (x, y) => !blockedAt(x, y) && !blockedAt(x - 8, y) && !blockedAt(x + 8, y);
+function startPlay() {
+  ui.play = true; ui.sel = null; road = []; Object.assign(player, { x: doc.spawn.x, y: doc.spawn.y, dir: 'down', moving: false });
+  play.hour = doc.time.hour; play.last = performance.now(); play.keys.clear();
+  $('playHint').hidden = false; $('opts').hidden = true; $('btnPlay').textContent = '■ Стоп'; $('btnPlay').classList.add('on');
+  cam.z = Math.max(cam.z, 1); $('zoomVal').textContent = Math.round(cam.z * 100) + '%'; follow(); view.focus();
+  play.timer = setInterval(tickPlay, 33); showStatus();
+}
+function stopPlay() {
+  ui.play = false; clearInterval(play.timer); $('playHint').hidden = true; $('opts').hidden = false; $('btnPlay').textContent = '▶ Пройтись'; $('btnPlay').classList.remove('on'); showStatus(); dirty();
+}
+function follow() { const r = view.getBoundingClientRect(); cam.x = player.x - r.width / 2 / cam.z; cam.y = player.y - 40 - r.height / 2 / cam.z; }
+function tickPlay() {
+  const t = performance.now(), dt = Math.min(0.1, (t - play.last) / 1000); play.last = t;
+  if (doc.time.cycle) play.hour = (play.hour + dt * 24 / (doc.time.minutes * 60)) % 24;
+  let vx = 0, vy = 0; const k = play.keys;
+  if (k.has('left')) vx--; if (k.has('right')) vx++; if (k.has('up')) vy--; if (k.has('down')) vy++;
+  player.moving = !!(vx || vy);
+  if (player.moving) {
+    const sp = 84 * dt / Math.hypot(vx, vy);
+    player.dir = vx > 0 ? 'right' : vx < 0 ? 'left' : vy > 0 ? 'down' : 'up';
+    const nx = player.x + vx * sp, ny = player.y + vy * sp;
+    if (canStand(nx, ny)) { player.x = nx; player.y = ny; } else if (vx && canStand(nx, player.y)) player.x = nx; else if (vy && canStand(player.x, ny)) player.y = ny;
+    player.step += dt * 7;
+  }
+  follow(); render(); showStatus();
+}
+$('btnPlay').onclick = () => (ui.play ? stopPlay() : startPlay());
+const KEYMAP = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right' };
+
+// ───────────── Файлы ─────────────
+const STORE = 'pepel-world-editor';
+function toFile() {
+  return { version: 1, name: doc.name, cols: doc.cols, rows: doc.rows, tile: TILE, dot: DOT, cell: CELL,
+    ground: doc.ground, paint: paint.toDataURL(), block: packBlock(), lib: doc.lib, objects: doc.objects, lights: doc.lights, places: doc.places, spawn: doc.spawn, time: doc.time, colors: doc.colors };
+}
+// Стены — строкой: клетки по 6 штук в символе
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+function packBlock() { let s = ''; for (let i = 0; i < block.length; i += 6) { let v = 0; for (let k = 0; k < 6; k++) v |= (block[i + k] ? 1 : 0) << k; s += B64[v]; } return s; }
+function unpackBlock(s) { const out = new Uint8Array(bw() * bh()); for (let i = 0; i < s.length; i++) { const v = B64.indexOf(s[i]); for (let k = 0; k < 6; k++) if (i * 6 + k < out.length) out[i * 6 + k] = (v >> k) & 1; } return out; }
+async function fromFile(data) {
+  if (!data || !data.cols || !data.rows) throw new Error('это не карта редактора мира');
+  doc = { ...blankDoc(data.cols, data.rows), ...data }; delete doc.paint; delete doc.block;
+  doc.ground = { color: '#25301e', image: null, scale: 2, ...(data.ground || {}) };
+  for (const o of doc.objects) if (!o.foot) { const l = libById(o.lib); if (l) o.foot = defaultFoot(l, o.scale || 2); }
+  resetLayers();
+  if (data.paint) pg.drawImage(await loadImage(data.paint), 0, 0);
+  if (data.block) block = unpackBlock(data.block);
+  groundImg = doc.ground.image ? await loadImage(doc.ground.image) : null;
+  for (const l of doc.lib) await libImage(l);
+  undo.length = redo.length = 0; ui.sel = null; ui.placing = null;
+  buildAll(); fitView();
+}
+let saveTimer = 0, warned = false;
+function autosave() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    try { localStorage.setItem(STORE, JSON.stringify(toFile())); }
+    catch { if (!warned) { warned = true; alert('Карта большая и не помещается в память браузера — не забывай «Сохранить» в файл.'); } }
+  }, 800);
+}
+$('btnSave').onclick = () => download((doc.name || 'map').replace(/[\\/:*?"<>|]/g, '') + '.json', new Blob([JSON.stringify(toFile())], { type: 'application/json' }));
+$('btnOpen').onclick = () => $('fileMap').click();
+$('fileMap').onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { await fromFile(JSON.parse(await readFile(f, 'text'))); autosave(); } catch (err) { alert('Не получилось открыть: ' + err.message); } };
+$('btnNewMap').onclick = () => { if (!confirm('Начать новую карту? Текущую сначала сохрани, если нужна.')) return; doc = blankDoc(); resetLayers(); groundImg = null; undo.length = redo.length = 0; ui.sel = null; ui.placing = null; buildAll(); fitView(); autosave(); };
+$('btnShot').onclick = () => { const c = newCanvas(mapW(), mapH()); drawWorld(c.getContext('2d'), { time: ui.showTime }); c.toBlob((b) => download((doc.name || 'map') + '.png', b)); };
+$('btnUndo').onclick = () => applyStep(undo, redo);
+$('btnRedo').onclick = () => applyStep(redo, undo);
+
+// Разметка из Tiled: «Проходимо» и «Препятствия» становятся стенами, огни, места и появление — как есть.
+// Картинку земли выбираешь потом кнопкой «Картинка земли»
+$('btnTiled').onclick = () => $('fileTiled').click();
+$('fileTiled').onchange = async (e) => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const m = JSON.parse(await readFile(f, 'text')), z = m.properties?.find((p) => p.name === 'увеличение')?.value || 1;
+    const layer = (n) => (m.layers.find((l) => l.name === n)?.objects || []).filter((o) => o.visible !== false);
+    const shape = (o) => (o.polygon ? o.polygon.map((p) => [(o.x + p.x) * z, (o.y + p.y) * z]) : o.width && o.height && !o.point ? [[o.x, o.y], [o.x + o.width, o.y], [o.x + o.width, o.y + o.height], [o.x, o.y + o.height]].map(([x, y]) => [x * z, y * z]) : null);
+    const inPoly = (pts, x, y) => { let r = false; for (let a = 0, b = pts.length - 1; a < pts.length; b = a++) { const [xa, ya] = pts[a], [xb, yb] = pts[b]; if ((ya > y) !== (yb > y) && x < ((xb - xa) * (y - ya)) / (yb - ya) + xa) r = !r; } return r; };
+    const walk = layer('Проходимо').map(shape).filter(Boolean), stop = layer('Препятствия').map(shape).filter(Boolean);
+    const cols = Math.ceil(m.width * m.tilewidth * z / TILE), rows = Math.ceil(m.height * m.tileheight * z / TILE);
+    remember();
+    if (cols !== doc.cols || rows !== doc.rows) { doc.cols = cols; doc.rows = rows; resetLayers(); undo.length = 0; }
+    const W2 = bw();
+    for (let i = 0; i < block.length; i++) { const x = (i % W2 + 0.5) * CELL, y = (Math.floor(i / W2) + 0.5) * CELL; block[i] = (walk.length && !walk.some((p) => inPoly(p, x, y))) || stop.some((p) => inPoly(p, x, y)) ? 1 : 0; }
+    const prop = (o, n, d) => o.properties?.find((p) => p.name === n)?.value ?? d;
+    doc.lights = layer('Огни').map((o) => ({ x: o.x * z, y: o.y * z, r: prop(o, 'радиус', 40) * z, color: '#' + String(prop(o, 'цвет', '#ffaa50')).replace('#', '').slice(-6), flicker: prop(o, 'мерцание', 1) }));
+    doc.places = layer('Места').filter((o) => o.name).map((o) => ({ x: o.x * z, y: o.y * z, name: o.name, scene: prop(o, 'сцена', ''), to: prop(o, 'переход', '') }));
+    const sp = layer('Герой').find((o) => o.name === 'Появление'); if (sp) doc.spawn = { x: sp.x * z, y: sp.y * z };
+    doc.ground.scale = z; buildAll(); fitView(); autosave();
+    alert('Разметка взята. Теперь нажми «Картинка земли» и выбери ту же картинку (например art/maps/start.png).');
+  } catch (err) { alert('Не получилось прочитать карту Tiled: ' + err.message); }
+};
+
+// ───────────── Клавиши ─────────────
+window.addEventListener('keydown', (e) => {
+  if ($('objDlg').open) {
+    if ((e.ctrlKey || e.metaKey) && /^(z|я)$/i.test(e.key)) { e.preventDefault(); const s = oe.undo.pop(); if (s) { oe.redo.push(oe.px); oe.px = s; objDraw(); } }
+    if ((e.ctrlKey || e.metaKey) && /^(y|н)$/i.test(e.key)) { e.preventDefault(); const s = oe.redo.pop(); if (s) { oe.undo.push(oe.px); oe.px = s; objDraw(); } }
+    return;
+  }
+  if ($('impDlg').open || e.target.matches('input, select')) return;
+  if (ui.play) { if (KEYMAP[e.code]) { play.keys.add(KEYMAP[e.code]); e.preventDefault(); } if (e.code === 'Escape') stopPlay(); return; }
+  if (e.code === 'Space') { spaceDown = true; view.style.cursor = 'grab'; e.preventDefault(); return; }
+  if ((e.ctrlKey || e.metaKey) && /^(z|я)$/i.test(e.key)) { e.preventDefault(); applyStep(e.shiftKey ? redo : undo, e.shiftKey ? undo : redo); return; }
+  if ((e.ctrlKey || e.metaKey) && /^(y|н)$/i.test(e.key)) { e.preventDefault(); applyStep(redo, undo); return; }
+  if ((e.ctrlKey || e.metaKey) && /^(s|ы)$/i.test(e.key)) { e.preventDefault(); $('btnSave').click(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === 'Enter' && ui.tool === 'road') { finishRoad(); return; }
+  if (e.key === 'Escape') { road = []; ui.sel = null; buildSel(); dirty(); return; }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && ui.sel && ui.sel.kind !== 'spawn') { remember(); const list = ui.sel.kind === 'object' ? doc.objects : ui.sel.kind === 'light' ? doc.lights : doc.places; list.splice(list.indexOf(ui.sel.item), 1); ui.sel = null; buildSel(); dirty(); autosave(); return; }
+  // Буквы и в русской раскладке
+  const RU = { 'м': 'V', 'и': 'B', 'к': 'R', 'п': 'G', 'у': 'E', 'ш': 'I', 'ч': 'X', 'щ': 'O', 'д': 'L', 'з': 'P', 'р': 'H' };
+  const key = (RU[e.key.toLowerCase()] || e.key).toUpperCase(), t = TOOLS.find((x) => x[2] === key);
+  if (t) setTool(t[0]);
+});
+window.addEventListener('keyup', (e) => { if (e.code === 'Space') { spaceDown = false; view.style.cursor = ''; } if (KEYMAP[e.code]) play.keys.delete(KEYMAP[e.code]); });
+window.addEventListener('blur', () => { play.keys.clear(); spaceDown = false; });
+
+// ───────────── Запуск ─────────────
+function buildAll() { buildTools(); buildSwatches(); buildMap(); buildSel(); buildLib(); dirty(); }
+window.addEventListener('resize', layout);
+(async () => {
+  let ok = false;
+  try { const s = localStorage.getItem(STORE); if (s) { await fromFile(JSON.parse(s)); ok = true; } } catch {}
+  if (!ok) { resetLayers(); buildAll(); }
+  layout(); if (!ok) fitView();
+  setInterval(render, 33);
+})();
+</script>
+</body>
+</html>

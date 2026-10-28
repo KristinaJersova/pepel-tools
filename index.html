@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Пепел после Тишины — редакторы</title>
+  <link href="https://fonts.googleapis.com/css2?family=PT+Sans:wght@400;700&family=Nunito:wght@800;900&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg: #14111a; --panel: #211c29; --edge: #3b3247; --cream: #fbf3e0; --text: #ece2d0; --muted: #a99d8c; --gold: #f2c45a; color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 'PT Sans', system-ui, sans-serif; }
+    main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+    h1 { font: 900 30px Nunito, sans-serif; color: var(--gold); margin: 0 0 6px; }
+    p { color: var(--muted); margin: 0 0 14px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 24px 0; }
+    a.card { display: block; background: var(--panel); border: 3px solid var(--edge); border-radius: 16px; padding: 18px; color: var(--text); text-decoration: none; }
+    a.card:hover { border-color: var(--gold); }
+    a.card b { display: block; font: 900 20px Nunito, sans-serif; color: var(--cream); margin-bottom: 6px; }
+    h2 { font: 900 18px Nunito, sans-serif; color: var(--gold); margin: 28px 0 8px; }
+    ol { color: var(--muted); padding-left: 22px; }
+    ol a, p a { color: var(--gold); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Пепел после Тишины</h1>
+  <p>Редакторы для игры. Всё работает прямо в браузере, ничего ставить не нужно. Работа сохраняется в этом браузере сама, а чтобы передать её — «Сохранить» и прислать файл .json.</p>
+  <div class="cards">
+    <a class="card" href="world-editor.html"><b>Редактор мира</b>Земля, дороги, здания, картинки, стены, огни, время суток. «Пройтись» — проверить мечником.</a>
+    <a class="card" href="hero-editor.html"><b>Редактор героев</b>Фигурка 40×64 по клеткам: материалы с тенями или свои цвета, 16 кадров с ходьбой.</a>
+  </div>
+  <h2>Начальная зона</h2>
+  <ol>
+    <li>Скачай <a href="maps/start.tmj" download>start.tmj</a> и <a href="art/maps/start.png" download>start.png</a>.</li>
+    <li>В редакторе мира: «Из Tiled» → start.tmj, потом «Картинка земли» → start.png.</li>
+  </ol>
+  <h2>Как работать вдвоём</h2>
+  <p>Каждый рисует у себя. Закончил — «Сохранить», прислал файл; другой — «Открыть» и продолжает.</p>
+</main>
+</body>
+</html>
