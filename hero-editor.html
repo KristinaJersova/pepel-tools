@@ -73,7 +73,7 @@
     .png-dlg { display: flex; gap: 14px; }
     .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center; font-size: 13px; color: var(--muted); }
     .png-dlg aside { width: 300px; border: none; padding: 0; background: none; }
-    #pngPrev { image-rendering: pixelated; background: repeating-conic-gradient(#1a1820 0 25%, #16141b 0 50%) 0 0 / 10px 10px; border-radius: 8px; }
+    #pngPrev, #sheetPrev { image-rendering: pixelated; background: repeating-conic-gradient(#1a1820 0 25%, #16141b 0 50%) 0 0 / 10px 10px; border-radius: 8px; }
     #view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: crosshair; }
     .float { position: absolute; display: flex; gap: 8px; align-items: center; background: rgba(33, 28, 41, 0.92); border: 2px solid var(--edge); border-radius: 12px; padding: 5px 10px; font-size: 13px; }
     .opts { left: 10px; top: 10px; flex-wrap: wrap; right: 10px; width: max-content; max-width: calc(100% - 20px); }
@@ -163,7 +163,8 @@
         <button id="btnPaste" title="Ctrl+V — вставить; двигай мышкой или стрелками, Enter — готово, Esc — отмена">Вставить</button>
       </div>
       <div class="row" style="margin-top:6px">
-        <button id="btnPng" title="Картинка PNG в кадр. Можно и Ctrl+V с картинкой в буфере или перетащить её на холст">PNG…</button>
+        <button id="btnPngIn" title="Картинка PNG в кадр. Можно и Ctrl+V с картинкой в буфере или перетащить её на холст">PNG…</button>
+        <button id="btnSheet" title="Одна картинка со всеми видами героя сеткой — разложить по 16 кадрам">Лист…</button>
         <button id="btnPasteAll" title="Вставить скопированное во все 16 кадров на то же место">Во все кадры</button>
         <label title="Пустые точки скопированного тоже стирают то, что под ними"><input type="checkbox" id="pasteEmpty"> с пустыми</label>
       </div>
@@ -185,6 +186,30 @@
       <p class="hint">Слева — крупно, справа — размер на карте. «Вправо» — то же, что «вбок», в зеркале: рисовать отдельно не надо.</p>
     </aside>
   </div>
+  <input type="file" id="fileSheet" accept="image/*" hidden>
+  <!-- Лист кадров: картинка со всеми видами героя → 16 кадров -->
+  <dialog id="sheetDlg">
+    <div class="png-dlg">
+      <aside>
+        <h3>Лист кадров</h3>
+        <p class="hint">Картинка, где герой нарисован во всех видах сеткой, как кадры сверху: Спереди, В руке, 3/4, Спина, Вниз 1–4, Вверх 1–4, Вбок 1–4. Подписи под фигурами не мешают.</p>
+        <div class="grid2">
+          Сетка <span><input type="number" id="sheetCols" min="1" max="8" value="4" style="width:52px"> × <input type="number" id="sheetRows" min="1" max="8" value="4" style="width:52px"> (столбцы × ряды)</span>
+          Размер <input type="range" id="sheetScale" min="50" max="100" value="100">
+          Как уменьшать <select id="sheetSmooth"><option value="1">сглаживая (для рисунка)</option><option value="0">по точкам (для пиксель-арта)</option></select>
+          Цветов <input type="range" id="sheetColors" min="4" max="32" value="24">
+          <span></span><span id="sheetText"></span>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <label title="Серые клетки прозрачности или сплошной цвет угла станут пустотой"><input type="checkbox" id="sheetBg" checked> убрать фон</label>
+          <label title="Новые цвета получат свет и тень, как материалы"><input type="checkbox" id="sheetShade"> с тенями</label>
+        </div>
+        <p class="hint">Рост у всех кадров один, ноги — на линии земли. Цвета лягут в «Мои цвета». Фон убирается от краёв: если между рукой и телом осталось серое — сотри ластиком.</p>
+        <div class="row" style="margin-top:10px; justify-content:flex-end"><button id="sheetCancel">Отмена</button><button id="sheetOk" class="main">В кадры</button></div>
+      </aside>
+      <canvas id="sheetPrev" width="352" height="544"></canvas>
+    </div>
+  </dialog>
   <input type="file" id="filePng" accept="image/*" hidden>
   <!-- Картинка в кадр: уменьшить, свести к нескольким цветам, убрать фон -->
   <dialog id="pngDlg">
@@ -912,10 +937,131 @@ $('pngOk').onclick = () => {
   float = { x, y, clip: { ...clip, px: px.slice() } };
   $('pngDlg').close(); buildTools(); draw(); showClip(); autosave();
 };
-$('btnPng').onclick = () => $('filePng').click();
+$('btnPngIn').onclick = () => $('filePng').click();
 $('filePng').onchange = (e) => { openPng(e.target.files[0]); e.target.value = ''; };
 view.addEventListener('dragover', (e) => e.preventDefault());
 view.addEventListener('drop', (e) => { e.preventDefault(); openPng(e.dataTransfer.files[0]); });
+
+// ───────────── Лист кадров: одна картинка с героем во всех видах → 16 кадров ─────────────
+// Порядок клеток — как кадры сверху: слева направо, сверху вниз. В клетке берём самое большое пятно (фигуру), подписи отбрасываем
+let sheet = null;
+async function openSheet(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  let im; try { im = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = URL.createObjectURL(file); }); }
+  catch { alert('Картинка не открылась'); return; }
+  const c = Object.assign(document.createElement('canvas'), { width: im.width, height: im.height }), g = c.getContext('2d', { willReadFrequently: true });
+  g.drawImage(im, 0, 0); sheet = { w: im.width, h: im.height, d: g.getImageData(0, 0, im.width, im.height).data, figs: null };
+  applyFloat(); $('sheetDlg').showModal(); sheetCut(); sheetPreview();
+}
+// Фон — прозрачное или серое без цвета (нарисованные «клетки» прозрачности), если включено; только от краёв клетки
+function sheetBgLike(i) {
+  const d = sheet.d; if (d[i * 4 + 3] < 128) return true;
+  if (!$('sheetBg').checked) return false;
+  const r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2], hi = Math.max(r, g, b), lo = Math.min(r, g, b);
+  if (sheet.corner) return Math.abs(r - sheet.corner[0]) + Math.abs(g - sheet.corner[1]) + Math.abs(b - sheet.corner[2]) < 48;
+  return hi - lo <= 14 && lo >= 112 && hi <= 208 || hi - lo <= 10 && lo >= 225;
+}
+function sheetCut() {
+  const { w, h, d } = sheet, cols = Math.max(1, +$('sheetCols').value), rows = Math.max(1, +$('sheetRows').value);
+  // Угол цветной (не серый) — фон сплошной, его и убираем; серый — считаем «клетками»
+  const r0 = d[0], g0 = d[1], b0 = d[2]; sheet.corner = d[3] > 200 && Math.max(r0, g0, b0) - Math.min(r0, g0, b0) > 14 ? [r0, g0, b0] : null;
+  const on = new Uint8Array(w * h).fill(1), figs = [];
+  for (let cy = 0; cy < rows; cy++) for (let cx = 0; cx < cols; cx++) {
+    const x0 = Math.round(cx * w / cols), x1 = Math.round((cx + 1) * w / cols), y0 = Math.round(cy * h / rows), y1 = Math.round((cy + 1) * h / rows), st = [];
+    for (let x = x0; x < x1; x++) st.push(y0 * w + x, (y1 - 1) * w + x);
+    for (let y = y0; y < y1; y++) st.push(y * w + x0, y * w + x1 - 1);
+    while (st.length) {
+      const i = st.pop(); if (!on[i] || !sheetBgLike(i)) continue; on[i] = 0;
+      const x = i % w, y = (i / w) | 0;
+      if (x > x0) st.push(i - 1); if (x < x1 - 1) st.push(i + 1); if (y > y0) st.push(i - w); if (y < y1 - 1) st.push(i + w);
+    }
+    // Светлая кайма у края (размытый JPEG-ом фон) — снимаем пару слоёв серых светлых точек, золото и цвет не трогаем
+    if ($('sheetBg').checked && !sheet.corner) for (let pass = 0; pass < 3; pass++) {
+      const cut = [];
+      for (let y = y0 + 1; y < y1 - 1; y++) for (let x = x0 + 1; x < x1 - 1; x++) {
+        const i = y * w + x; if (!on[i] || on[i - 1] && on[i + 1] && on[i - w] && on[i + w]) continue;
+        const r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2], hi = Math.max(r, g, b);
+        if (hi > 125 && hi - Math.min(r, g, b) < 64) cut.push(i);
+      }
+      for (const i of cut) on[i] = 0;
+    }
+    // Пятна в клетке; фигура — самое большое, к ней — мелкие куски рядом (кончик меча, блик)
+    const lab = new Int32Array((x1 - x0) * (y1 - y0)).fill(-1), cw = x1 - x0, blobs = [];
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+      const li = (y - y0) * cw + x - x0; if (!on[y * w + x] || lab[li] >= 0) continue;
+      const b = { n: 0, x0: x, x1: x, y0: y, y1: y }, q = [li]; lab[li] = blobs.length;
+      while (q.length) {
+        const j = q.pop(), jx = j % cw + x0, jy = ((j / cw) | 0) + y0; b.n++;
+        if (jx < b.x0) b.x0 = jx; if (jx > b.x1) b.x1 = jx; if (jy < b.y0) b.y0 = jy; if (jy > b.y1) b.y1 = jy;
+        for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+          const nx = jx + ox, ny = jy + oy; if (nx < x0 || nx >= x1 || ny < y0 || ny >= y1) continue;
+          const nl = (ny - y0) * cw + nx - x0; if (on[ny * w + nx] && lab[nl] < 0) { lab[nl] = blobs.length; q.push(nl); }
+        }
+      }
+      blobs.push(b);
+    }
+    if (!blobs.length) { figs.push(null); continue; }
+    const big = blobs.reduce((a, b) => (b.n > a.n ? b : a)), pad = Math.max(3, Math.round((big.y1 - big.y0) * 0.04)), keep = new Set();
+    blobs.forEach((b, k) => { if (b === big || b.x1 >= big.x0 - pad && b.x0 <= big.x1 + pad && b.y1 >= big.y0 - pad && b.y0 <= big.y1 + pad) keep.add(k); });
+    const box = { x0: x1, x1: x0, y0: y1, y1: y0 };
+    for (const k of keep) { const b = blobs[k]; box.x0 = Math.min(box.x0, b.x0); box.x1 = Math.max(box.x1, b.x1); box.y0 = Math.min(box.y0, b.y0); box.y1 = Math.max(box.y1, b.y1); }
+    // Фигура отдельным холстом с прозрачным фоном; середина — по «весу» точек, чтобы меч сбоку не сдвигал героя
+    const fw = box.x1 - box.x0 + 1, fh = box.y1 - box.y0 + 1, c = Object.assign(document.createElement('canvas'), { width: fw, height: fh });
+    const id = c.getContext('2d').createImageData(fw, fh); let sx = 0, sn = 0;
+    for (let y = 0; y < fh; y++) for (let x = 0; x < fw; x++) {
+      const gx = box.x0 + x, gy = box.y0 + y; if (!keep.has(lab[(gy - y0) * cw + gx - x0])) continue;
+      const si = (gy * w + gx) * 4, di = (y * fw + x) * 4; id.data.set(d.subarray(si, si + 3), di); id.data[di + 3] = 255; sx += x; sn++;
+    }
+    c.getContext('2d').putImageData(id, 0, 0);
+    figs.push({ c, w: fw, h: fh, mid: sn ? sx / sn : fw / 2 });
+  }
+  sheet.figs = figs;
+}
+// Один масштаб на все кадры, чтобы герой не менял рост; ноги — на линии земли
+function sheetFrames() {
+  const figs = sheet.figs.slice(0, FRAMES.length), real = figs.filter(Boolean); if (!real.length) return null;
+  const k = Math.min(62 / Math.max(...real.map((f) => f.h)), 40 / Math.max(...real.map((f) => f.w))) * (+$('sheetScale').value / 100);
+  const smooth = $('sheetSmooth').value === '1', out = [], pts = [];
+  for (const f of figs) {
+    if (!f) { out.push(null); continue; }
+    const c = Object.assign(document.createElement('canvas'), { width: W, height: H }), g = c.getContext('2d', { willReadFrequently: true });
+    g.imageSmoothingEnabled = smooth; g.imageSmoothingQuality = 'high';
+    const sw = f.w * k, sh = f.h * k; g.drawImage(f.c, Math.round(W / 2 - f.mid * k), Math.round(62 - sh), sw, sh);
+    const d = g.getImageData(0, 0, W, H).data, at = new Int32Array(W * H).fill(-1);
+    for (let i = 0; i < W * H; i++) if (d[i * 4 + 3] >= 128) { at[i] = pts.length; pts.push([d[i * 4], d[i * 4 + 1], d[i * 4 + 2]]); }
+    out.push(at);
+  }
+  // Цвета — общие на весь лист
+  const centers = kmeans(pts, +$('sheetColors').value), pick = pts.map((p) => nearestOf(centers, p));
+  return { frames: out, centers, pick };
+}
+function sheetPreview() {
+  const r = sheetFrames(), cv = $('sheetPrev'), g = cv.getContext('2d'), S = 2; g.clearRect(0, 0, cv.width, cv.height);
+  if (!r) { $('sheetText').textContent = 'Фигур не нашлось'; return; }
+  const { added, full } = pngCodes(r.centers, $('sheetShade').checked, false);
+  r.frames.forEach((at, n) => {
+    const ox = (n % 4) * (W + 4) * S, oy = ((n / 4) | 0) * (H + 4) * S;
+    g.fillStyle = 'rgba(255,255,255,0.04)'; g.fillRect(ox, oy, W * S, H * S);
+    if (at) for (let i = 0; i < W * H; i++) { if (at[i] < 0) continue; g.fillStyle = rgbFrom(r.centers[r.pick[at[i]]]); g.fillRect(ox + (i % W) * S, oy + ((i / W) | 0) * S, S, S); }
+  });
+  const n = r.frames.filter(Boolean).length;
+  $('sheetText').textContent = `фигур ${n} из ${FRAMES.length} · цветов ${r.centers.length}, новых ${added}${full ? ' — палитра полна, часть цветов заменена похожими' : ''}`;
+}
+for (const id of ['sheetCols', 'sheetRows', 'sheetBg']) $(id).onchange = () => { sheetCut(); sheetPreview(); };
+for (const id of ['sheetScale', 'sheetSmooth', 'sheetColors', 'sheetShade']) $(id).oninput = $(id).onchange = sheetPreview;
+$('sheetCancel').onclick = () => $('sheetDlg').close();
+$('sheetOk').onclick = () => {
+  const r = sheetFrames(); if (!r) return;
+  if (!confirm(`Заменить кадры героя «${hero().name}» фигурами с листа? Отменить можно по кадру (Ctrl+Z).`)) return;
+  const { codes } = pngCodes(r.centers, $('sheetShade').checked, true), was = ui.frame;
+  r.frames.forEach((at, n) => {
+    if (!at) return; ui.frame = FRAMES[n][0]; remember();
+    hero().frames[ui.frame] = Array.from(at, (j) => (j < 0 ? '.' : codes[r.pick[j]]));
+  });
+  ui.frame = was; $('sheetDlg').close(); changed(true);
+};
+$('btnSheet').onclick = () => $('fileSheet').click();
+$('fileSheet').onchange = (e) => { openSheet(e.target.files[0]); e.target.value = ''; };
 // Ctrl+V: картинка в буфере обмена — в окно PNG, иначе — свой скопированный кусок
 window.addEventListener('paste', (e) => {
   if (e.target.matches?.('input, textarea')) return;
@@ -938,7 +1084,7 @@ $('optShade').onchange = (e) => { ui.shaded = e.target.checked; draw(); };
 $('optGrid').onchange = (e) => { ui.grid = e.target.checked; draw(); };
 $('onionPick').onchange = (e) => { ui.onion = e.target.value; draw(); };
 window.addEventListener('keydown', (e) => {
-  if (e.target.matches('input, select') || $('pngDlg').open) return;
+  if (e.target.matches('input, select') || $('pngDlg').open || $('sheetDlg').open) return;
   const k = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я')) { e.preventDefault(); step(e.shiftKey ? redo : undo, e.shiftKey ? undo : redo); return; }
   if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н')) { e.preventDefault(); step(redo, undo); return; }
