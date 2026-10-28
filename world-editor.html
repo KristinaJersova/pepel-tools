@@ -31,6 +31,8 @@
     label { display: inline-flex; align-items: center; gap: 6px; }
 
     .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 14px; background: var(--panel); border-bottom: 3px solid var(--edge); }
+    .sync { font-size: 13px; color: var(--muted); border: 2px solid var(--edge); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
+    #syncPeople { font-size: 13px; color: var(--muted); }
     .logo { font-family: var(--font-pixel); font-weight: 900; font-size: 19px; color: var(--gold); text-shadow: 0 2px 0 var(--outline); white-space: nowrap; }
     .fields { display: flex; gap: 6px 12px; flex-wrap: wrap; flex: 1 1 200px; font-size: 13px; color: var(--muted); align-items: center; }
     .actions { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -76,6 +78,7 @@
     #playHint { left: 50%; top: 10px; transform: translateX(-50%); display: block; white-space: nowrap; }
 
     dialog { background: var(--panel); color: var(--text); border: 3px solid var(--edge-light); border-radius: 14px; padding: 0; max-width: 96vw; max-height: 94vh; }
+    dialog.ask { max-width: 440px; padding: 16px; } dialog.ask p { margin: 0 0 10px; white-space: pre-wrap; } dialog.ask .row { display: flex; gap: 8px; }
     dialog::backdrop { background: rgba(5, 4, 8, 0.7); }
     .dlg { display: flex; gap: 12px; padding: 12px; max-height: 92vh; }
     .dlg aside { border: none; padding: 0; width: 250px; background: none; }
@@ -87,8 +90,11 @@
 <body>
   <div class="bar">
     <div class="logo">Редактор мира</div>
+    <span class="sync" id="syncState" hidden></span><span id="syncPeople"></span>
     <div class="fields">
       <label>Карта <input type="text" id="mapName" style="width:160px"></label>
+      <select id="mapPick" hidden title="Общие карты — у всех одни и те же"></select>
+      <button id="btnDelMap" hidden title="Удалить эту общую карту у всех">Удалить карту</button>
     </div>
     <div class="actions">
       <button id="btnNewMap">Новая</button>
@@ -453,7 +459,28 @@ function rgbToHsv(r, g, b) {
 const uid = () => Math.random().toString(36).slice(2, 9);
 const loadImage = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => fail(new Error('картинка не открылась')); i.src = src; });
 const readFile = (f, as = 'dataURL') => new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = fail; as === 'text' ? r.readAsText(f) : r.readAsDataURL(f); });
-const download = (name, blob) => { const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000); };
+// Свои окна вместо confirm / alert / prompt и скачивания по ссылке: на claude.ai браузерные не работают
+function ask(text, { ok = 'Да', cancel = 'Отмена', input = null } = {}) {
+  return new Promise((done) => {
+    const d = document.createElement('dialog'); d.className = 'ask';
+    d.innerHTML = '<p></p><div class="row" style="justify-content:flex-end; margin-top:10px"></div>';
+    d.querySelector('p').textContent = text;
+    let field = null;
+    if (input !== null) { field = Object.assign(document.createElement('input'), { type: 'text', value: input }); field.style.width = '100%'; d.insertBefore(field, d.lastChild); }
+    const row = d.lastChild, finish = (v) => { d.close(); d.remove(); done(v); };
+    if (cancel) { const b = document.createElement('button'); b.textContent = cancel; b.onclick = () => finish(input !== null ? null : false); row.append(b); }
+    const b = document.createElement('button'); b.className = 'main'; b.textContent = ok; b.onclick = () => finish(input !== null ? field.value : true); row.append(b);
+    d.addEventListener('cancel', (e) => { e.preventDefault(); finish(input !== null ? null : false); });
+    d.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); b.click(); } });
+    document.body.append(d); d.showModal(); (field || b).focus(); if (field) field.select();
+  });
+}
+const say = (text) => ask(text, { ok: 'Понятно', cancel: null });
+async function download(name, blob) {
+  const dl = window.claude?.use ? await claude.use('downloads') : null;
+  if (dl) { try { await dl.save({ filename: name, data: blob }); } catch (e) { if (e?.code !== 'cancelled' && e?.code !== 'declined') say('Файл не сохранился: ' + (e?.message || e)); } return; }
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
 const newCanvas = (w, h) => Object.assign(document.createElement('canvas'), { width: w, height: h });
 
 // ───────────── Круг цветов ─────────────
@@ -521,7 +548,7 @@ function texColor(t, rgb, x, y) {
 // Всё в точках мира: клетка 32 точки, герой ростом 64. Краска земли — отдельная картинка с точкой 2×2
 function blankDoc(cols = 40, rows = 28) {
   return {
-    version: 1, name: 'Новая карта', cols, rows,
+    version: 1, id: uid(), t: Date.now(), name: 'Новая карта', cols, rows,
     ground: { color: '#25301e', image: null, scale: 2 },
     lib: [], objects: [], lights: [], places: [], spawn: { x: cols * TILE / 2, y: rows * TILE / 2 },
     time: { hour: 13, cycle: true, minutes: 12 },
@@ -801,7 +828,7 @@ view.addEventListener('pointerdown', (e) => {
     case 'road': if (right) { road = []; dirty(); } else road.push([p.x, p.y]); break;
     case 'wall': remember(); drag = { wall: !right }; wallAt(p, !right); break;
     case 'place': {
-      if (!ui.placing) { alert('Сначала выбери объект в списке справа'); break; }
+      if (!ui.placing) { say('Сначала выбери объект в списке справа'); break; }
       const l = libById(ui.placing); remember();
       const s = l.scale || 2, o = { id: uid(), lib: l.id, x: Math.round(p.x), y: Math.round(p.y), scale: s, flip: false, solid: l.solid !== false, flat: !!l.flat, foot: l.foot ? l.foot.slice() : defaultFoot(l, s) };
       doc.objects.push(o); dirty(); autosave(); break;
@@ -876,9 +903,9 @@ function buildMap() {
   $('timeHour').value = doc.time.hour; $('timeText').textContent = clock(doc.time.hour); $('timeCycle').checked = doc.time.cycle; $('timeMinutes').value = doc.time.minutes;
 }
 $('mapName').oninput = (e) => { doc.name = e.target.value || 'Без имени'; autosave(); };
-$('btnResize').onclick = () => {
+$('btnResize').onclick = async () => {
   const c = clamp(+$('mapCols').value | 0, 8, 200), r = clamp(+$('mapRows').value | 0, 8, 200); if (c === doc.cols && r === doc.rows) return;
-  if ((c < doc.cols || r < doc.rows) && !confirm('Карта станет меньше — что за краем, пропадёт. Дальше?')) { buildMap(); return; }
+  if ((c < doc.cols || r < doc.rows) && !(await ask('Карта станет меньше — что за краем, пропадёт. Дальше?'))) { buildMap(); return; }
   const center = $('mapAnchor').value === 'c', ox = center ? Math.round((c - doc.cols) / 2) * TILE : 0, oy = center ? Math.round((r - doc.rows) / 2) * TILE : 0;
   const oldPaint = paint, oldBlock = block, oldBW = bw(), oldBH = bh();
   doc.cols = c; doc.rows = r; resetLayers();
@@ -894,7 +921,7 @@ $('btnGroundImg').onclick = () => $('fileGround').click();
 $('fileGround').onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; await setGroundImage(await readFile(f)); };
 async function setGroundImage(src) { doc.ground.image = src; groundImg = await loadImage(src); buildMap(); dirty(); autosave(); }
 $('btnGroundFit').onclick = () => {
-  if (!groundImg) { alert('Сначала выбери картинку земли'); return; }
+  if (!groundImg) { say('Сначала выбери картинку земли'); return; }
   $('mapCols').value = Math.ceil(groundImg.width * doc.ground.scale / TILE); $('mapRows').value = Math.ceil(groundImg.height * doc.ground.scale / TILE); $('mapAnchor').value = 'tl'; $('btnResize').onclick();
 };
 $('btnGroundDel').onclick = () => { doc.ground.image = null; groundImg = null; buildMap(); dirty(); autosave(); };
@@ -935,7 +962,7 @@ function buildSel() {
     dirty(); autosave();
   };
   for (const inp of box.querySelectorAll('[data-f]')) inp.oninput = () => { it.foot[+inp.dataset.f] = +inp.value; dirty(); autosave(); };
-  for (const b of box.querySelectorAll('[data-a]')) b.onclick = () => {
+  for (const b of box.querySelectorAll('[data-a]')) b.onclick = async () => {
     const a = b.dataset.a; remember();
     if (a === 'del') { const list = s.kind === 'object' ? doc.objects : s.kind === 'light' ? doc.lights : doc.places; list.splice(list.indexOf(it), 1); ui.sel = null; }
     if (a === 'flip') it.flip = !it.flip;
@@ -980,13 +1007,13 @@ function buildLibInfo() {
     if (k === 'folder' && !l.folder) l.folder = 'Разное';
     buildLib(); autosave();
   };
-  for (const b of box.querySelectorAll('[data-a]')) b.onclick = () => {
+  for (const b of box.querySelectorAll('[data-a]')) b.onclick = async () => {
     const a = b.dataset.a;
     if (a === 'edit') openObjEditor(l);
     if (a === 'all') { remember(); for (const o of doc.objects) if (o.lib === l.id) { o.scale = l.scale || 2; o.foot = defaultFoot(l, o.scale); } dirty(); autosave(); }
     if (a === 'del') {
       const used = doc.objects.filter((o) => o.lib === l.id).length;
-      if (!confirm(used ? `Удалить «${l.name}» и все ${used} на карте?` : `Удалить «${l.name}»?`)) return;
+      if (!(await ask(used ? `Удалить «${l.name}» и все ${used} на карте?` : `Удалить «${l.name}»?`))) return;
       doc.objects = doc.objects.filter((o) => o.lib !== l.id); doc.lib = doc.lib.filter((x) => x !== l); ui.placing = null;
       ui.sel = null; undo.length = redo.length = 0; buildLib(); buildSel(); dirty(); autosave();
     }
@@ -997,15 +1024,15 @@ $('libFolder').onchange = (e) => { libFolder = e.target.value; buildLib(); };
 $('btnSources').onclick = () => {
   const by = new Map(); for (const l of doc.lib) { const s = l.source || 'своё'; by.set(s, [...(by.get(s) || []), l.name]); }
   const text = [...by].map(([s, names]) => `${s}: ${names.length} — ${names.slice(0, 8).join(', ')}${names.length > 8 ? '…' : ''}`).join('\n');
-  prompt('Откуда взяты объекты (можно скопировать):', text.replace(/\n/g, ' | ') || 'пока ничего');
+  ask('Откуда взяты объекты (можно скопировать):', { input: text.replace(/\n/g, ' | ') || 'пока ничего', ok: 'Закрыть', cancel: null });
 };
 async function addLib(entry) { await libImage(entry); doc.lib.push(entry); ui.placing = entry.id; if (entry.folder) libFolder = entry.folder; setTool('place'); buildLib(); autosave(); }
 // Много картинок разом: каждая — объект как есть (фон уже прозрачный). Папка — из имени папки или спрашиваем
 async function addMany(files, folderGuess = '') {
   files = [...files].filter((f) => f.type.startsWith('image/')); if (!files.length) return;
-  const folder = (prompt(`Добавить ${files.length} картинок. В какую папку?`, folderGuess || 'Разное') || '').trim(); if (!folder) return;
-  const source = (prompt('Откуда они — набор, автор, ссылка? (для docs/assets.md, можно пусто)', '') || '').trim();
-  const scale = clamp(+(prompt('Увеличение на карте (2 — как картинки из ChatGPT, 1 — как есть)', '2') || 2), 0.25, 8);
+  const folder = ((await ask(`Добавить ${files.length} картинок. В какую папку?`, { input: folderGuess || 'Разное' })) || '').trim(); if (!folder) return;
+  const source = ((await ask('Откуда они — набор, автор, ссылка? (для docs/assets.md, можно пусто)', { input: '' })) || '').trim();
+  const scale = clamp(+((await ask('Увеличение на карте (2 — как картинки из ChatGPT, 1 — как есть)', { input: '2' })) || 2), 0.25, 8);
   let n = 0;
   for (const f of files) {
     try {
@@ -1189,7 +1216,7 @@ async function addPieces(rects) {
   libFolder = $('impFolder').value.trim() || 'Разное'; buildLib(); autosave(); $('impDlg').close();
   $('status').innerHTML = n ? `Из листа — <b>${n}</b> вещей в папку «${libFolder}»` : 'На листе не нашлось вещей — сначала убери фон';
 }
-$('impSplit').onclick = () => {
+$('impSplit').onclick = async () => {
   // Острова непрозрачных точек; соседние ближе 3 точек — одна вещь. Совсем мелкие крошки отбрасываем
   const w = imp.work.width, h = imp.work.height, D = imp.work.getContext('2d').getImageData(0, 0, w, h).data, seen = new Uint8Array(w * h), out = [], GAP = 3;
   for (let s = 0; s < w * h; s++) {
@@ -1201,7 +1228,7 @@ $('impSplit').onclick = () => {
     }
     if (area >= 24) out.push([x0, y0, x1 - x0 + 1, y1 - y0 + 1]);
   }
-  if (out.length > 300 && !confirm(`Нашлось ${out.length} вещей — может, фон не убран? Всё равно добавить?`)) return;
+  if (out.length > 300 && !(await ask(`Нашлось ${out.length} вещей — может, фон не убран? Всё равно добавить?`))) return;
   out.sort((a, b) => a[1] - b[1] || a[0] - b[0]); addPieces(out);
 };
 $('impGrid').onclick = () => {
@@ -1275,7 +1302,7 @@ const KEYMAP = { ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down', Arr
 // ───────────── Файлы ─────────────
 const STORE = 'pepel-world-editor';
 function toFile() {
-  return { version: 1, name: doc.name, cols: doc.cols, rows: doc.rows, tile: TILE, dot: DOT, cell: CELL,
+  return { version: 1, id: doc.id, t: doc.t, name: doc.name, cols: doc.cols, rows: doc.rows, tile: TILE, dot: DOT, cell: CELL,
     ground: doc.ground, paint: paint.toDataURL(), block: packBlock(), lib: doc.lib, objects: doc.objects, lights: doc.lights, places: doc.places, spawn: doc.spawn, time: doc.time, colors: doc.colors };
 }
 // Стены — строкой: клетки по 6 штук в символе
@@ -1300,13 +1327,14 @@ function autosave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try { localStorage.setItem(STORE, JSON.stringify(toFile())); }
-    catch { if (!warned) { warned = true; alert('Карта большая и не помещается в память браузера — не забывай «Сохранить» в файл.'); } }
+    catch { if (!warned) { warned = true; say('Карта большая и не помещается в память браузера — не забывай «Сохранить» в файл.'); } }
+    syncPush();
   }, 800);
 }
 $('btnSave').onclick = () => download((doc.name || 'map').replace(/[\\/:*?"<>|]/g, '') + '.json', new Blob([JSON.stringify(toFile())], { type: 'application/json' }));
 $('btnOpen').onclick = () => $('fileMap').click();
-$('fileMap').onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { await fromFile(JSON.parse(await readFile(f, 'text'))); autosave(); } catch (err) { alert('Не получилось открыть: ' + err.message); } };
-$('btnNewMap').onclick = () => { if (!confirm('Начать новую карту? Текущую сначала сохрани, если нужна.')) return; doc = blankDoc(); resetLayers(); groundImg = null; undo.length = redo.length = 0; ui.sel = null; ui.placing = null; buildAll(); fitView(); autosave(); };
+$('fileMap').onchange = async (e) => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { const data = JSON.parse(await readFile(f, 'text')); if (Sync.on) delete data.id; /* в общей работе файл — новая общая карта, чужую не затирает */ await fromFile(data); autosave(); } catch (err) { say('Не получилось открыть: ' + err.message); } };
+$('btnNewMap').onclick = async () => { if (!(await ask('Начать новую карту? Текущую сначала сохрани, если нужна.'))) return; doc = blankDoc(); resetLayers(); groundImg = null; undo.length = redo.length = 0; ui.sel = null; ui.placing = null; buildAll(); fitView(); autosave(); };
 $('btnShot').onclick = () => { const c = newCanvas(mapW(), mapH()); drawWorld(c.getContext('2d'), { time: ui.showTime }); c.toBlob((b) => download((doc.name || 'map') + '.png', b)); };
 $('btnUndo').onclick = () => applyStep(undo, redo);
 $('btnRedo').onclick = () => applyStep(redo, undo);
@@ -1332,10 +1360,224 @@ $('fileTiled').onchange = async (e) => {
     doc.places = layer('Места').filter((o) => o.name).map((o) => ({ x: o.x * z, y: o.y * z, name: o.name, scene: prop(o, 'сцена', ''), to: prop(o, 'переход', '') }));
     const sp = layer('Герой').find((o) => o.name === 'Появление'); if (sp) doc.spawn = { x: sp.x * z, y: sp.y * z };
     doc.ground.scale = z; buildAll(); fitView(); autosave();
-    alert('Разметка взята. Теперь нажми «Картинка земли» и выбери ту же картинку (например art/maps/start.png).');
-  } catch (err) { alert('Не получилось прочитать карту Tiled: ' + err.message); }
+    say('Разметка взята. Теперь нажми «Картинка земли» и выбери ту же картинку (например art/maps/start.png).');
+  } catch (err) { say('Не получилось прочитать карту Tiled: ' + err.message); }
 };
 
+
+// ───────────── Общая работа (claude.ai) ─────────────
+// Открыто на claude.ai — всё само уходит в общую базу, а чужие правки приходят сюда. Вне claude.ai Sync молчит.
+// Каждая часть — свой документ (кадр героя, объект карты), так двое не затирают друг другу работу.
+// Ключи в JSON сортируем: база может вернуть их в другом порядке, а сравнивать надо по смыслу
+const canon = (v) => (Array.isArray(v) ? '[' + v.map(canon).join(',') + ']' : v && typeof v === 'object' ? '{' + Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}' : JSON.stringify(v ?? null));
+const Sync = {
+  db: null, user: null, on: false, readOnly: false, last: new Map(), busy: new Set(), queued: new Map(), errors: 0, images: new Map(), written: new Set(),
+  async start() {
+    if (!window.claude?.use) return false;
+    this.db = await claude.use('db'); if (!this.db) return false;
+    this.user = await claude.use('user');
+    if (this.user && (await this.user.can('data.write')) === false) this.readOnly = true;
+    this.on = true; this.show(); this.people(); return true;
+  },
+  // Записать документ, если он поменялся; в один документ — по одной записи за раз
+  put(path, body) {
+    if (!this.on || this.readOnly) return; const s = canon(body); if (this.last.get(path) === s) return;
+    this.last.set(path, s); this.queued.set(path, body); this.flush(path);
+  },
+  async flush(path) {
+    if (this.busy.has(path) || !this.queued.has(path)) return;
+    const body = this.queued.get(path); this.queued.delete(path); this.busy.add(path); this.show();
+    try { await this.db.doc(path).set(body); }
+    catch (e) { this.fail(e); }
+    this.busy.delete(path); this.show(); this.flush(path);
+  },
+  drop(path) { if (!this.on || this.readOnly || !this.last.has(path)) return; this.last.delete(path); this.queued.delete(path); this.db.doc(path).delete().catch((e) => this.fail(e)); },
+  fail(e) {
+    if (e?.code === 'invalid_argument' && !this.errors++) { this.readOnly = true; say('Менять общую работу тебе нельзя — можно только смотреть. Попроси владельца дать доступ «Редактор».'); }
+    else if (e?.code === 'quota_exceeded') say('Общая база переполнена: ' + e.message);
+    else console.warn('Общая база:', e);
+    this.show();
+  },
+  // Чужая правка — новая (не эхо нашей записи)? Тогда запоминаем её как последнюю
+  fresh(path, data) { const s = canon(data); if (this.last.get(path) === s || this.busy.has(path) || this.queued.has(path)) return false; this.last.set(path, s); return true; },
+  // Слушать коллекцию: fn(тип, id, данные) только на чужие изменения. Сначала один раз get — чтобы знать, что уже есть
+  async list(coll, filter) {
+    let q = this.db.collection(coll); if (filter) q = q.where(...filter);
+    const snap = await q.get(); for (const d of snap.docs) this.last.set(coll + '/' + d.id, canon(d.data()));
+    return snap.docs.map((d) => [d.id, d.data()]);
+  },
+  watch(coll, filter, fn) {
+    let q = this.db.collection(coll); if (filter) q = q.where(...filter);
+    return q.onSnapshot((snap) => {
+      for (const ch of snap.docChanges()) {
+        const path = coll + '/' + ch.doc.id;
+        if (ch.type === 'removed') { if (this.last.has(path) && !this.busy.has(path)) { this.last.delete(path); fn('removed', ch.doc.id, ch.doc.data()); } continue; }
+        if (ch.doc.metadata.hasPendingWrites) continue;
+        const data = ch.doc.data(); if (this.fresh(path, data)) fn(ch.type, ch.doc.id, data);
+      }
+    }, (e) => { console.warn('Общая база:', e); setTimeout(() => this.watch(coll, filter, fn), 3000); });
+  },
+  // Картинка data:… — кусками в коллекцию img (файлы артефакта не видны друзьям не из организации). В части — только метка img:хэш:кусков.
+  // Одинаковая картинка — тот же хэш, второй раз не пишется
+  async image(src) {
+    if (!src || !src.startsWith('data:') || this.readOnly) return src;
+    let h = 0x811c9dc5, h2 = 0; for (let i = 0; i < src.length; i++) { h = Math.imul(h ^ src.charCodeAt(i), 16777619); h2 = (h2 * 31 + src.charCodeAt(i)) | 0; }
+    const key = (h >>> 0).toString(36) + (h2 >>> 0).toString(36) + src.length.toString(36), n = Math.ceil(src.length / 200000), ref = `img:${key}:${n}`;
+    this.images.set(ref, src);
+    if (!this.written.has(key)) {
+      this.written.add(key);
+      try { for (let i = 0; i < n; i++) await this.db.doc(`img/${key}~${i}`).set({ d: src.slice(i * 200000, (i + 1) * 200000) }); }
+      catch (e) { this.written.delete(key); this.fail(e); return null; }
+    }
+    return ref;
+  },
+  async load(ref) {
+    if (!ref || !ref.startsWith('img:')) return ref;
+    if (this.images.has(ref)) return this.images.get(ref);
+    const [, key, n] = ref.split(':'), parts = await Promise.all(Array.from({ length: +n }, (_, i) => this.db.doc(`img/${key}~${i}`).get()));
+    if (parts.some((p) => !p.exists)) return null;
+    const src = parts.map((p) => p.data().d).join(''); this.images.set(ref, src); this.written.add(key); return src;
+  },
+  // Старая картинка больше не нужна (перерисовали краску)
+  forget(ref) { if (!ref?.startsWith('img:') || this.readOnly) return; const [, key, n] = ref.split(':'); this.written.delete(key); for (let i = 0; i < +n; i++) this.db.doc(`img/${key}~${i}`).delete().catch(() => {}); },
+  show() {
+    const el = document.getElementById('syncState'); if (!el) return;
+    el.hidden = !this.on;
+    el.textContent = this.readOnly ? '👁 только смотреть' : this.busy.size || this.queued.size ? '⟳ сохраняю…' : '✓ общая работа';
+    el.title = this.readOnly ? 'Тебе дан доступ только смотреть' : 'Всё, что рисуешь, сохраняется в общей базе на claude.ai и видно всем, кому дан доступ';
+  },
+  // Кто сейчас здесь — по именам
+  async people() {
+    const room = await claude.use('room'); if (!room || !this.user) return;
+    const me = await this.user.id(); if (me) room.presence({ uid: me });
+    room.onPeers(async ({ peers }) => {
+      const ids = [...new Set(peers.map((p) => p.presence?.uid || p.by).filter(Boolean))], ps = ids.length ? await this.user.profiles(ids) : {};
+      const names = ids.map((id) => (id === me ? 'ты' : ps[id]?.name || 'кто-то'));
+      const el = document.getElementById('syncPeople'); if (el) { el.textContent = names.length > 1 ? 'Здесь: ' + names.join(', ') : ''; }
+    });
+  },
+};
+// Карты в базе: maps/<id> — имя (для списка); parts/<id>~<часть> — основа, стены, огни, места, библиотека, краска;
+// objects/<id>~<объект> — каждый поставленный объект отдельно
+const MAP_KEY = STORE + '-map';
+let followed = null, unsubs = [], paintMark = { url: '', ref: '' }, pushing = false, pushAgain = false, pushTimer = 0;
+const part = (name) => `parts/${doc.id}~${name}`;
+function syncPush() { if (!Sync.on || Sync.readOnly) return; clearTimeout(pushTimer); pushTimer = setTimeout(worldPush, 900); }
+async function worldPush() {
+  if (pushing) { pushAgain = true; return; }
+  pushing = true;
+  try {
+    if (followed !== doc.id) await followMap(doc.id);
+    const mid = doc.id, ground = { ...doc.ground, image: await Sync.image(doc.ground.image) };
+    if (doc.ground.image && !ground.image) throw new Error('картинка земли не сохранилась');
+    Sync.put('maps/' + mid, { name: doc.name, t: doc.t || 0 });
+    Sync.put(part('base'), { map: mid, name: doc.name, cols: doc.cols, rows: doc.rows, ground, time: doc.time, colors: doc.colors, spawn: doc.spawn });
+    Sync.put(part('block'), { map: mid, s: packBlock() });
+    Sync.put(part('lights'), { map: mid, list: doc.lights });
+    Sync.put(part('places'), { map: mid, list: doc.places });
+    const lib = []; for (const l of doc.lib) { const src = await Sync.image(l.src); if (src) lib.push({ ...l, src }); }
+    Sync.put(part('lib'), { map: mid, list: lib });
+    // Краска: та же, что пришла из базы, — не перезаливаем
+    const url = paint.toDataURL();
+    if (url !== paintMark.url) {
+      const ref = await Sync.image(url);
+      if (ref) { const old = paintMark.ref; paintMark = { url, ref }; Sync.put(part('paint'), { map: mid, img: ref }); if (old && old !== ref) setTimeout(() => Sync.forget(old), 5000); }
+    }
+    const alive = new Set();
+    for (const o of doc.objects) { const p = `objects/${mid}~${o.id}`; alive.add(p); Sync.put(p, { ...o, map: mid }); }
+    for (const p of [...Sync.last.keys()]) if (p.startsWith(`objects/${mid}~`) && !alive.has(p)) Sync.drop(p);
+  } catch (e) { console.warn('Общая карта:', e); }
+  pushing = false;
+  if (pushAgain) { pushAgain = false; worldPush(); }
+}
+// Чужая правка части карты
+async function applyPart(p) {
+  switch (p.part || '') {
+    case 'base': {
+      doc.name = p.name || doc.name; $('mapName').value = doc.name;
+      if (p.cols !== doc.cols || p.rows !== doc.rows) { const old = paint; doc.cols = p.cols; doc.rows = p.rows; resetLayers(); pg.drawImage(old, 0, 0); }
+      const src = await Sync.load(p.ground?.image);
+      doc.ground = { ...doc.ground, ...p.ground, image: src || null }; groundImg = src ? await loadImage(src) : null;
+      if (p.time) doc.time = p.time; if (p.colors) doc.colors = p.colors; if (p.spawn) doc.spawn = p.spawn;
+      break;
+    }
+    case 'block': if (typeof p.s === 'string') block = unpackBlock(p.s); break;
+    case 'lights': doc.lights = p.list || []; break;
+    case 'places': doc.places = p.list || []; break;
+    case 'lib': {
+      const list = [];
+      for (const l of p.list || []) { const src = await Sync.load(l.src); if (!src) continue; const e = { ...l, src }; await libImage(e); list.push(e); }
+      doc.lib = list; break;
+    }
+    case 'paint': {
+      const src = await Sync.load(p.img); if (!src) break;
+      const img = await loadImage(src); pg.clearRect(0, 0, paint.width, paint.height); pg.drawImage(img, 0, 0);
+      paintMark = { url: paint.toDataURL(), ref: p.img }; break;
+    }
+  }
+}
+function applyObject(type, id, o) {
+  const oid = id.split('~')[1], i = doc.objects.findIndex((x) => x.id === oid);
+  if (type === 'removed') { if (i >= 0) { if (ui.sel?.item === doc.objects[i]) ui.sel = null; doc.objects.splice(i, 1); } return; }
+  const body = { ...o }; delete body.map;
+  if (i >= 0) { const cur = doc.objects[i]; for (const k of Object.keys(cur)) delete cur[k]; Object.assign(cur, structuredClone(body)); }
+  else doc.objects.push(structuredClone(body));
+}
+function afterRemote() { buildAll(); try { localStorage.setItem(STORE, JSON.stringify(toFile())); } catch {} }
+// Слушать правки этой карты
+async function followMap(mid) {
+  for (const u of unsubs) u(); unsubs = []; followed = mid;
+  const onPart = async (type, id, p) => { if (type !== 'removed') { await applyPart(p); afterRemote(); } };
+  unsubs.push(Sync.watch('parts', ['map', '==', mid], onPart));
+  unsubs.push(Sync.watch('objects', ['map', '==', mid], (type, id, o) => { applyObject(type, id, o); afterRemote(); }));
+  try { localStorage.setItem(MAP_KEY, mid); } catch {}
+  buildMapPick();
+}
+// Открыть общую карту целиком
+async function openShared(mid) {
+  showStatusText('Открываю общую карту…');
+  const parts = Object.fromEntries((await Sync.list('parts', ['map', '==', mid])).map(([, p]) => [p.part, p]));
+  const objects = (await Sync.list('objects', ['map', '==', mid])).map(([, o]) => { const b = { ...o }; delete b.map; return b; });
+  const base = parts.base; if (!base) { say('Эта карта пустая или ещё сохраняется — попробуй через минуту'); return; }
+  const lib = [];
+  for (const l of parts.lib?.list || []) { const src = await Sync.load(l.src); if (src) lib.push({ ...l, src }); }
+  const t = mapList.find(([id]) => id === mid)?.[1].t || 0;
+  await fromFile({ id: mid, t, name: base.name, cols: base.cols, rows: base.rows, ground: { ...base.ground, image: await Sync.load(base.ground?.image) }, time: base.time, colors: base.colors || [], spawn: base.spawn,
+    lib, objects, lights: parts.lights?.list || [], places: parts.places?.list || [], block: parts.block?.s, paint: await Sync.load(parts.paint?.img) });
+  paintMark = { url: paint.toDataURL(), ref: parts.paint?.img || '' };
+  await followMap(mid); try { localStorage.setItem(STORE, JSON.stringify(toFile())); } catch {}
+}
+// Список общих карт
+let mapList = [];
+function buildMapPick() {
+  const sel = $('mapPick'); if (!Sync.on) return; sel.hidden = false; $('btnDelMap').hidden = Sync.readOnly;
+  const list = mapList.slice().sort((a, b) => (b[1].t || 0) - (a[1].t || 0));
+  if (!list.some(([id]) => id === doc.id)) list.unshift([doc.id, { name: doc.name }]);
+  sel.replaceChildren(...list.map(([id, m]) => new Option(m.name || 'Без имени', id, false, id === doc.id)));
+}
+function showStatusText(t) { $('status').textContent = t; }
+async function syncStart() {
+  if (!(await Sync.start())) return;
+  mapList = await Sync.list('maps');
+  const want = (() => { try { return localStorage.getItem(MAP_KEY); } catch { return null; } })();
+  const pick = mapList.find(([id]) => id === doc.id) || mapList.find(([id]) => id === want) || mapList.slice().sort((a, b) => (b[1].t || 0) - (a[1].t || 0))[0];
+  if (pick) {
+    if (pick[0] !== doc.id) { try { localStorage.setItem(STORE + '-local', JSON.stringify(toFile())); } catch {} }
+    await openShared(pick[0]);
+  } else if (!Sync.readOnly) { await followMap(doc.id); worldPush(); }
+  Sync.watch('maps', null, (type, id, m) => { mapList = mapList.filter(([x]) => x !== id); if (type !== 'removed') mapList.push([id, m]); buildMapPick(); });
+  buildMapPick();
+}
+$('mapPick').onchange = (e) => openShared(e.target.value);
+$('btnDelMap').onclick = async () => {
+  if (!(await ask(`Удалить общую карту «${doc.name}» у всех? Сначала можно «Сохранить» её в файл.`))) return;
+  const mid = doc.id;
+  for (const p of [...Sync.last.keys()]) if (p === 'maps/' + mid || p.startsWith(`parts/${mid}~`) || p.startsWith(`objects/${mid}~`)) Sync.drop(p);
+  if (paintMark.ref) Sync.forget(paintMark.ref);
+  mapList = mapList.filter(([x]) => x !== mid);
+  const next = mapList[0];
+  if (next) await openShared(next[0]); else { doc = blankDoc(); resetLayers(); groundImg = null; buildAll(); fitView(); autosave(); }
+};
 // ───────────── Клавиши ─────────────
 window.addEventListener('keydown', (e) => {
   if ($('objDlg').open) {
@@ -1370,6 +1612,7 @@ window.addEventListener('resize', layout);
   if (!ok) { resetLayers(); buildAll(); }
   layout(); if (!ok) fitView();
   setInterval(render, 33);
+  syncStart();
 })();
 </script>
 </body>

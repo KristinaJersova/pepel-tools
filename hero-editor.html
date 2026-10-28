@@ -30,6 +30,8 @@
     label { display: inline-flex; align-items: center; gap: 6px; }
 
     .bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 14px; background: var(--panel); border-bottom: 3px solid var(--edge); }
+    .sync { font-size: 13px; color: var(--muted); border: 2px solid var(--edge); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
+    #syncPeople { font-size: 13px; color: var(--muted); }
     .logo { font-family: var(--font-pixel); font-weight: 900; font-size: 19px; color: var(--gold); text-shadow: 0 2px 0 var(--outline); white-space: nowrap; }
     .fields { display: flex; gap: 6px 12px; flex-wrap: wrap; flex: 1 1 420px; font-size: 13px; color: var(--muted); align-items: center; }
     .fields input[type=text] { width: 130px; }
@@ -69,6 +71,7 @@
 
     .stage { flex: 1; position: relative; min-width: 0; background: #0c0b0a; }
     dialog { background: var(--panel); color: var(--text); border: 3px solid var(--edge-light); border-radius: 14px; padding: 12px; }
+    dialog.ask { max-width: 440px; padding: 16px; } dialog.ask p { margin: 0 0 10px; white-space: pre-wrap; } dialog.ask .row { display: flex; gap: 8px; }
     dialog::backdrop { background: rgba(5, 4, 8, 0.7); }
     .png-dlg { display: flex; gap: 14px; }
     .grid2 { display: grid; grid-template-columns: auto 1fr; gap: 6px 8px; align-items: center; font-size: 13px; color: var(--muted); }
@@ -84,6 +87,7 @@
 <body>
   <div class="bar">
     <div class="logo">Редактор героев</div>
+    <span class="sync" id="syncState" hidden></span><span id="syncPeople"></span>
     <div class="fields">
       <label>Герой <select id="heroPick"></select></label>
       <label>Имя <input type="text" id="heroName"></label>
@@ -482,26 +486,27 @@ function knightFrames() {
 
 // ───────────── Проект ─────────────
 const blankFrames = () => Object.fromEntries(FRAMES.map(([k]) => [k, new Array(W * H).fill('.')]));
-const newHero = (name, frames = blankFrames()) => ({ name, accentName: 'Красный', accent: ACCENTS['Красный'].slice(), colors: {}, frames });
+const uid = () => Math.random().toString(36).slice(2, 10);
+const newHero = (name, frames = blankFrames()) => ({ id: uid(), t: Date.now(), name, accentName: 'Красный', accent: ACCENTS['Красный'].slice(), colors: {}, frames });
 let project = { version: 1, heroes: [] };
 const ui = { hi: 0, frame: 'front', tool: 'pen', mat: 'P', brush: 1, mirror: false, shaded: false, grid: true, onion: 'auto', anim: 'idle' };
 const hero = () => project.heroes[ui.hi];
 const cur = () => hero().frames[ui.frame];
 
 const STORE = 'pepel-hero-editor';
-function toFile() { return { version: 1, size: [W, H], heroes: project.heroes.map((h) => ({ name: h.name, accentName: h.accentName, accent: h.accent, colors: h.colors, frames: Object.fromEntries(Object.entries(h.frames).map(([k, v]) => [k, v.join('')])) })) }; }
+function toFile() { return { version: 1, size: [W, H], heroes: project.heroes.map((h) => ({ id: h.id, t: h.t, name: h.name, accentName: h.accentName, accent: h.accent, colors: h.colors, frames: Object.fromEntries(Object.entries(h.frames).map(([k, v]) => [k, v.join('')])) })) }; }
 function fromFile(data) {
   if (!data || !Array.isArray(data.heroes)) throw new Error('В файле нет героев');
-  return { version: 1, heroes: data.heroes.map((h) => {
+  return { version: 1, heroes: data.heroes.map((h, n) => {
     const colors = {};
     for (const [k, c] of Object.entries(h.colors || {})) if (CUSTOM_CODES.includes(k) && /^#[0-9a-f]{6}$/i.test(c?.hex)) colors[k] = { hex: c.hex.toLowerCase(), shade: !!c.shade };
     const frames = blankFrames();
     for (const [k] of FRAMES) if (typeof h.frames?.[k] === 'string' && h.frames[k].length === W * H) frames[k] = [...h.frames[k]].map((ch) => (ch in RAMP || ch in colors ? ch : '.'));
-    return { name: String(h.name || 'Без имени'), accentName: h.accentName || '', accent: Array.isArray(h.accent) && h.accent.length >= 2 ? h.accent : ACCENTS['Красный'].slice(), colors, frames };
+    return { id: typeof h.id === 'string' && /^[a-z0-9]{4,20}$/.test(h.id) ? h.id : uid(), t: h.t || Date.now() + n, name: String(h.name || 'Без имени'), accentName: h.accentName || '', accent: Array.isArray(h.accent) && h.accent.length >= 2 ? h.accent : ACCENTS['Красный'].slice(), colors, frames };
   }) };
 }
 let saveTimer = 0;
-function autosave() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { try { localStorage.setItem(STORE, JSON.stringify(toFile())); } catch {} }, 600); }
+function autosave() { clearTimeout(saveTimer); saveTimer = setTimeout(() => { try { localStorage.setItem(STORE, JSON.stringify(toFile())); } catch {} }, 600); syncPush(); }
 function loadStored() { try { const s = localStorage.getItem(STORE); if (s) return fromFile(JSON.parse(s)); } catch {} return null; }
 
 // ───────────── Отмена ─────────────
@@ -573,7 +578,7 @@ function copySel(cut = false) {
   showClip(); draw();
 }
 function pasteClip() {
-  if (!clip) { alert('Сначала скопируй: Ctrl+C или «Копировать»'); return; }
+  if (!clip) { say('Сначала скопируй: Ctrl+C или «Копировать»'); return; }
   applyFloat(); float = { x: clip.x, y: clip.y, clip: { ...clip, px: clip.px.slice() } }; selRect = null; draw(); showClip();
 }
 // Вложить кусок в кадр: пустые точки не трогают то, что под ними, если не стоит «с пустыми»
@@ -787,33 +792,54 @@ $('btnAddColor').onclick = () => {
   const same = Object.entries(h.colors).find(([, c]) => c.hex === hex && c.shade === color.shade);
   if (same) { ui.mat = same[0]; buildTools(); return; }
   const code = CUSTOM_CODES.find((k) => !h.colors[k]);
-  if (!code) { alert('Палитра полна — убери ненужный цвет'); return; }
+  if (!code) { say('Палитра полна — убери ненужный цвет'); return; }
   h.colors[code] = { hex, shade: color.shade }; ui.mat = code; if (ui.tool === 'eraser' || ui.tool === 'picker') ui.tool = 'pen';
   buildTools(); autosave();
 };
 $('btnRecolor').onclick = () => {
-  const c = hero().colors[ui.mat]; if (!c) { alert('Сначала выбери цвет в «Мои цвета»'); return; }
+  const c = hero().colors[ui.mat]; if (!c) { say('Сначала выбери цвет в «Мои цвета»'); return; }
   c.hex = colorHex(); c.shade = color.shade; buildTools(); refreshThumbs(); draw(); autosave();
 };
-$('btnDelColor').onclick = () => {
-  const h = hero(), k = ui.mat; if (!h.colors[k]) { alert('Сначала выбери цвет в «Мои цвета»'); return; }
+$('btnDelColor').onclick = async () => {
+  const h = hero(), k = ui.mat; if (!h.colors[k]) { say('Сначала выбери цвет в «Мои цвета»'); return; }
   const used = Object.values(h.frames).some((f) => f.includes(k));
-  if (used && !confirm('Этот цвет нарисован на кадрах — стереть его оттуда?')) return;
+  if (used && !(await ask('Этот цвет нарисован на кадрах — стереть его оттуда?'))) return;
   for (const f of Object.values(h.frames)) for (let i = 0; i < f.length; i++) if (f[i] === k) f[i] = '.';
   delete h.colors[k]; ui.mat = 'P'; undo.length = redo.length = 0; changed(true);
 };
 
 // ───────────── Кнопки ─────────────
-const download = (name, blob) => { const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+// Свои окна вместо confirm / alert / prompt и скачивания по ссылке: на claude.ai браузерные не работают
+function ask(text, { ok = 'Да', cancel = 'Отмена', input = null } = {}) {
+  return new Promise((done) => {
+    const d = document.createElement('dialog'); d.className = 'ask';
+    d.innerHTML = '<p></p><div class="row" style="justify-content:flex-end; margin-top:10px"></div>';
+    d.querySelector('p').textContent = text;
+    let field = null;
+    if (input !== null) { field = Object.assign(document.createElement('input'), { type: 'text', value: input }); field.style.width = '100%'; d.insertBefore(field, d.lastChild); }
+    const row = d.lastChild, finish = (v) => { d.close(); d.remove(); done(v); };
+    if (cancel) { const b = document.createElement('button'); b.textContent = cancel; b.onclick = () => finish(input !== null ? null : false); row.append(b); }
+    const b = document.createElement('button'); b.className = 'main'; b.textContent = ok; b.onclick = () => finish(input !== null ? field.value : true); row.append(b);
+    d.addEventListener('cancel', (e) => { e.preventDefault(); finish(input !== null ? null : false); });
+    d.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter') { e.preventDefault(); b.click(); } });
+    document.body.append(d); d.showModal(); (field || b).focus(); if (field) field.select();
+  });
+}
+const say = (text) => ask(text, { ok: 'Понятно', cancel: null });
+async function download(name, blob) {
+  const dl = window.claude?.use ? await claude.use('downloads') : null;
+  if (dl) { try { await dl.save({ filename: name, data: blob }); } catch (e) { if (e?.code !== 'cancelled' && e?.code !== 'declined') say('Файл не сохранился: ' + (e?.message || e)); } return; }
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: name }); a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
 $('heroPick').onchange = (e) => { ui.hi = +e.target.value; changed(true); };
 $('heroName').oninput = (e) => { hero().name = e.target.value || 'Без имени'; $('heroPick').options[ui.hi].text = hero().name; setStatus(); autosave(); };
 $('accentPick').onchange = (e) => { const n = e.target.value; if (ACCENTS[n]) { hero().accentName = n; hero().accent = ACCENTS[n].slice(); } else hero().accentName = ''; changed(true); };
 $('accentColor').oninput = (e) => { hero().accentName = ''; hero().accent = rampFrom(e.target.value); $('accentPick').value = ''; buildTools(); refreshThumbs(); draw(); autosave(); };
 $('btnNew').onclick = () => { project.heroes.push(newHero('Новый герой')); ui.hi = project.heroes.length - 1; ui.frame = 'front'; changed(true); };
 $('btnKnight').onclick = () => { project.heroes.push(newHero('Мечник', knightFrames())); ui.hi = project.heroes.length - 1; ui.frame = 'front'; changed(true); };
-$('btnCopy').onclick = () => { const h = hero(); project.heroes.push({ ...h, name: h.name + ' (копия)', accent: h.accent.slice(), colors: structuredClone(h.colors), frames: Object.fromEntries(Object.entries(h.frames).map(([k, v]) => [k, v.slice()])) }); ui.hi = project.heroes.length - 1; changed(true); };
-$('btnDelete').onclick = () => {
-  if (!confirm(`Удалить героя «${hero().name}»?`)) return;
+$('btnCopy').onclick = () => { const h = hero(); project.heroes.push({ ...h, id: uid(), t: Date.now(), name: h.name + ' (копия)', accent: h.accent.slice(), colors: structuredClone(h.colors), frames: Object.fromEntries(Object.entries(h.frames).map(([k, v]) => [k, v.slice()])) }); ui.hi = project.heroes.length - 1; changed(true); };
+$('btnDelete').onclick = async () => {
+  if (!(await ask(`Удалить героя «${hero().name}»?`))) return;
   project.heroes.splice(ui.hi, 1); if (!project.heroes.length) project.heroes.push(newHero('Мечник', knightFrames()));
   ui.hi = Math.min(ui.hi, project.heroes.length - 1); undo.length = redo.length = 0; changed(true);
 };
@@ -821,8 +847,14 @@ $('btnSave').onclick = () => download('heroes.json', new Blob([JSON.stringify(to
 $('btnLoad').onclick = () => $('fileInput').click();
 $('fileInput').onchange = async (e) => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
-  try { project = fromFile(JSON.parse(await f.text())); if (!project.heroes.length) project.heroes.push(newHero('Новый герой')); ui.hi = 0; undo.length = redo.length = 0; changed(true); }
-  catch (err) { alert('Не получилось открыть файл: ' + err.message); }
+  try {
+    const got = fromFile(JSON.parse(await f.text()));
+    // В общей работе файл добавляет героев к общим, а не стирает чужих
+    if (Sync.on) { if (!got.heroes.length) return; for (const h of got.heroes) { if (project.heroes.some((x) => x.id === h.id)) h.id = uid(); project.heroes.push(h); } ui.hi = project.heroes.length - got.heroes.length; }
+    else { project = got; if (!project.heroes.length) project.heroes.push(newHero('Новый герой')); ui.hi = 0; }
+    undo.length = redo.length = 0; changed(true);
+  }
+  catch (err) { say('Не получилось открыть файл: ' + err.message); }
 };
 $('btnPng').onclick = () => {
   // Все кадры в ряд, точка в точку; последним — «вправо», уже отражённые
@@ -844,7 +876,7 @@ let pngSrc = null, pngCorner = [0, 0, 0], pendingPaste = 0;
 async function openPng(file) {
   if (!file || !file.type.startsWith('image/')) return;
   try { pngSrc = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = URL.createObjectURL(file); }); }
-  catch { alert('Картинка не открылась'); return; }
+  catch { say('Картинка не открылась'); return; }
   applyFloat();
   // Угол непрозрачный — скорее всего, сплошной фон: предложим его убрать
   const t = document.createElement('canvas'); t.width = t.height = 1; const tg = t.getContext('2d'); tg.drawImage(pngSrc, 0, 0, 1, 1, 0, 0, 1, 1);
@@ -948,7 +980,7 @@ let sheet = null;
 async function openSheet(file) {
   if (!file || !file.type.startsWith('image/')) return;
   let im; try { im = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = URL.createObjectURL(file); }); }
-  catch { alert('Картинка не открылась'); return; }
+  catch { say('Картинка не открылась'); return; }
   const c = Object.assign(document.createElement('canvas'), { width: im.width, height: im.height }), g = c.getContext('2d', { willReadFrequently: true });
   g.drawImage(im, 0, 0); sheet = { w: im.width, h: im.height, d: g.getImageData(0, 0, im.width, im.height).data, figs: null };
   applyFloat(); $('sheetDlg').showModal(); sheetCut(); sheetPreview();
@@ -1050,9 +1082,9 @@ function sheetPreview() {
 for (const id of ['sheetCols', 'sheetRows', 'sheetBg']) $(id).onchange = () => { sheetCut(); sheetPreview(); };
 for (const id of ['sheetScale', 'sheetSmooth', 'sheetColors', 'sheetShade']) $(id).oninput = $(id).onchange = sheetPreview;
 $('sheetCancel').onclick = () => $('sheetDlg').close();
-$('sheetOk').onclick = () => {
+$('sheetOk').onclick = async () => {
   const r = sheetFrames(); if (!r) return;
-  if (!confirm(`Заменить кадры героя «${hero().name}» фигурами с листа? Отменить можно по кадру (Ctrl+Z).`)) return;
+  if (!(await ask(`Заменить кадры героя «${hero().name}» фигурами с листа? Отменить можно по кадру (Ctrl+Z).`))) return;
   const { codes } = pngCodes(r.centers, $('sheetShade').checked, true), was = ui.frame;
   r.frames.forEach((at, n) => {
     if (!at) return; ui.frame = FRAMES[n][0]; remember();
@@ -1068,9 +1100,9 @@ window.addEventListener('paste', (e) => {
   const item = [...(e.clipboardData?.items || [])].find((i) => i.type.startsWith('image/'));
   if (item) { clearTimeout(pendingPaste); e.preventDefault(); openPng(item.getAsFile()); }
 });
-$('btnPasteAll').onclick = () => {
-  const f = float || (clip && { x: clip.x, y: clip.y, clip }); if (!f) { alert('Сначала скопируй: Ctrl+C или «Копировать»'); return; }
-  if (!confirm('Вставить скопированное во все 16 кадров этого героя на то же место?')) return;
+$('btnPasteAll').onclick = async () => {
+  const f = float || (clip && { x: clip.x, y: clip.y, clip }); if (!f) { say('Сначала скопируй: Ctrl+C или «Копировать»'); return; }
+  if (!(await ask('Вставить скопированное во все 16 кадров этого героя на то же место?'))) return;
   const was = ui.frame;
   for (const [k] of FRAMES) { ui.frame = k; remember(); stampClip(cur(), f); }
   ui.frame = was; float = null; changed(true); showClip();
@@ -1107,12 +1139,160 @@ window.addEventListener('keydown', (e) => {
   if (arrows[k]) { e.preventDefault(); if (float) { float.x += arrows[k][0]; float.y += arrows[k][1]; draw(); } else shift(...arrows[k]); }
 });
 
+
+// ───────────── Общая работа (claude.ai) ─────────────
+// Открыто на claude.ai — всё само уходит в общую базу, а чужие правки приходят сюда. Вне claude.ai Sync молчит.
+// Каждая часть — свой документ (кадр героя, объект карты), так двое не затирают друг другу работу.
+// Ключи в JSON сортируем: база может вернуть их в другом порядке, а сравнивать надо по смыслу
+const canon = (v) => (Array.isArray(v) ? '[' + v.map(canon).join(',') + ']' : v && typeof v === 'object' ? '{' + Object.keys(v).sort().filter((k) => v[k] !== undefined).map((k) => JSON.stringify(k) + ':' + canon(v[k])).join(',') + '}' : JSON.stringify(v ?? null));
+const Sync = {
+  db: null, user: null, on: false, readOnly: false, last: new Map(), busy: new Set(), queued: new Map(), errors: 0, images: new Map(), written: new Set(),
+  async start() {
+    if (!window.claude?.use) return false;
+    this.db = await claude.use('db'); if (!this.db) return false;
+    this.user = await claude.use('user');
+    if (this.user && (await this.user.can('data.write')) === false) this.readOnly = true;
+    this.on = true; this.show(); this.people(); return true;
+  },
+  // Записать документ, если он поменялся; в один документ — по одной записи за раз
+  put(path, body) {
+    if (!this.on || this.readOnly) return; const s = canon(body); if (this.last.get(path) === s) return;
+    this.last.set(path, s); this.queued.set(path, body); this.flush(path);
+  },
+  async flush(path) {
+    if (this.busy.has(path) || !this.queued.has(path)) return;
+    const body = this.queued.get(path); this.queued.delete(path); this.busy.add(path); this.show();
+    try { await this.db.doc(path).set(body); }
+    catch (e) { this.fail(e); }
+    this.busy.delete(path); this.show(); this.flush(path);
+  },
+  drop(path) { if (!this.on || this.readOnly || !this.last.has(path)) return; this.last.delete(path); this.queued.delete(path); this.db.doc(path).delete().catch((e) => this.fail(e)); },
+  fail(e) {
+    if (e?.code === 'invalid_argument' && !this.errors++) { this.readOnly = true; say('Менять общую работу тебе нельзя — можно только смотреть. Попроси владельца дать доступ «Редактор».'); }
+    else if (e?.code === 'quota_exceeded') say('Общая база переполнена: ' + e.message);
+    else console.warn('Общая база:', e);
+    this.show();
+  },
+  // Чужая правка — новая (не эхо нашей записи)? Тогда запоминаем её как последнюю
+  fresh(path, data) { const s = canon(data); if (this.last.get(path) === s || this.busy.has(path) || this.queued.has(path)) return false; this.last.set(path, s); return true; },
+  // Слушать коллекцию: fn(тип, id, данные) только на чужие изменения. Сначала один раз get — чтобы знать, что уже есть
+  async list(coll, filter) {
+    let q = this.db.collection(coll); if (filter) q = q.where(...filter);
+    const snap = await q.get(); for (const d of snap.docs) this.last.set(coll + '/' + d.id, canon(d.data()));
+    return snap.docs.map((d) => [d.id, d.data()]);
+  },
+  watch(coll, filter, fn) {
+    let q = this.db.collection(coll); if (filter) q = q.where(...filter);
+    return q.onSnapshot((snap) => {
+      for (const ch of snap.docChanges()) {
+        const path = coll + '/' + ch.doc.id;
+        if (ch.type === 'removed') { if (this.last.has(path) && !this.busy.has(path)) { this.last.delete(path); fn('removed', ch.doc.id, ch.doc.data()); } continue; }
+        if (ch.doc.metadata.hasPendingWrites) continue;
+        const data = ch.doc.data(); if (this.fresh(path, data)) fn(ch.type, ch.doc.id, data);
+      }
+    }, (e) => { console.warn('Общая база:', e); setTimeout(() => this.watch(coll, filter, fn), 3000); });
+  },
+  // Картинка data:… — кусками в коллекцию img (файлы артефакта не видны друзьям не из организации). В части — только метка img:хэш:кусков.
+  // Одинаковая картинка — тот же хэш, второй раз не пишется
+  async image(src) {
+    if (!src || !src.startsWith('data:') || this.readOnly) return src;
+    let h = 0x811c9dc5, h2 = 0; for (let i = 0; i < src.length; i++) { h = Math.imul(h ^ src.charCodeAt(i), 16777619); h2 = (h2 * 31 + src.charCodeAt(i)) | 0; }
+    const key = (h >>> 0).toString(36) + (h2 >>> 0).toString(36) + src.length.toString(36), n = Math.ceil(src.length / 200000), ref = `img:${key}:${n}`;
+    this.images.set(ref, src);
+    if (!this.written.has(key)) {
+      this.written.add(key);
+      try { for (let i = 0; i < n; i++) await this.db.doc(`img/${key}~${i}`).set({ d: src.slice(i * 200000, (i + 1) * 200000) }); }
+      catch (e) { this.written.delete(key); this.fail(e); return null; }
+    }
+    return ref;
+  },
+  async load(ref) {
+    if (!ref || !ref.startsWith('img:')) return ref;
+    if (this.images.has(ref)) return this.images.get(ref);
+    const [, key, n] = ref.split(':'), parts = await Promise.all(Array.from({ length: +n }, (_, i) => this.db.doc(`img/${key}~${i}`).get()));
+    if (parts.some((p) => !p.exists)) return null;
+    const src = parts.map((p) => p.data().d).join(''); this.images.set(ref, src); this.written.add(key); return src;
+  },
+  // Старая картинка больше не нужна (перерисовали краску)
+  forget(ref) { if (!ref?.startsWith('img:') || this.readOnly) return; const [, key, n] = ref.split(':'); this.written.delete(key); for (let i = 0; i < +n; i++) this.db.doc(`img/${key}~${i}`).delete().catch(() => {}); },
+  show() {
+    const el = document.getElementById('syncState'); if (!el) return;
+    el.hidden = !this.on;
+    el.textContent = this.readOnly ? '👁 только смотреть' : this.busy.size || this.queued.size ? '⟳ сохраняю…' : '✓ общая работа';
+    el.title = this.readOnly ? 'Тебе дан доступ только смотреть' : 'Всё, что рисуешь, сохраняется в общей базе на claude.ai и видно всем, кому дан доступ';
+  },
+  // Кто сейчас здесь — по именам
+  async people() {
+    const room = await claude.use('room'); if (!room || !this.user) return;
+    const me = await this.user.id(); if (me) room.presence({ uid: me });
+    room.onPeers(async ({ peers }) => {
+      const ids = [...new Set(peers.map((p) => p.presence?.uid || p.by).filter(Boolean))], ps = ids.length ? await this.user.profiles(ids) : {};
+      const names = ids.map((id) => (id === me ? 'ты' : ps[id]?.name || 'кто-то'));
+      const el = document.getElementById('syncPeople'); if (el) { el.textContent = names.length > 1 ? 'Здесь: ' + names.join(', ') : ''; }
+    });
+  },
+};
+// Герои в базе: heroes/<id> — имя, цвета; frames/<id>~<кадр> — точки кадра строкой
+const heroMeta = (h) => ({ name: h.name, accentName: h.accentName, accent: h.accent, colors: h.colors, t: h.t });
+let pushTimer = 0;
+function syncPush() {
+  if (!Sync.on) return; clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    const alive = new Set();
+    for (const h of project.heroes) {
+      alive.add('heroes/' + h.id); Sync.put('heroes/' + h.id, heroMeta(h));
+      for (const [k] of FRAMES) { const p = `frames/${h.id}~${k}`; alive.add(p); Sync.put(p, { hero: h.id, frame: k, px: h.frames[k].join('') }); }
+    }
+    for (const p of [...Sync.last.keys()]) if ((p.startsWith('heroes/') || p.startsWith('frames/')) && !alive.has(p)) Sync.drop(p);
+  }, 400);
+}
+function heroOf(id) {
+  let h = project.heroes.find((x) => x.id === id);
+  if (!h) { h = newHero('…'); h.id = id; project.heroes.push(h); }
+  return h;
+}
+function applyMeta(id, m) {
+  const h = heroOf(id); h.name = String(m.name || 'Без имени'); h.accentName = m.accentName || ''; h.t = m.t || 0;
+  if (Array.isArray(m.accent) && m.accent.length >= 2) h.accent = m.accent;
+  h.colors = {}; for (const [k, c] of Object.entries(m.colors || {})) if (CUSTOM_CODES.includes(k) && /^#[0-9a-f]{6}$/i.test(c?.hex)) h.colors[k] = { hex: c.hex, shade: !!c.shade };
+}
+function applyFrame(f) {
+  if (!f || !FRAME_NAME[f.frame] || typeof f.px !== 'string' || f.px.length !== W * H) return;
+  heroOf(f.hero).frames[f.frame] = [...f.px];
+}
+// После чужой правки: тот же герой остаётся выбранным, порядок — по времени создания
+function syncRefresh(full) {
+  const id = hero()?.id; project.heroes.sort((a, b) => (a.t || 0) - (b.t || 0));
+  ui.hi = Math.max(0, project.heroes.findIndex((h) => h.id === id));
+  if (full) { buildHeroBar(); buildFrames(); buildTools(); } else refreshThumbs();
+  draw(); try { localStorage.setItem(STORE, JSON.stringify(toFile())); } catch {}
+}
+async function syncStart() {
+  if (!(await Sync.start())) return;
+  const metas = await Sync.list('heroes'), frames = await Sync.list('frames');
+  if (!metas.length) { if (!Sync.readOnly) syncPush(); }
+  else {
+    // В базе уже есть герои — работаем с ними; свои прежние остаются в браузере запасной копией
+    try { localStorage.setItem(STORE + '-local', JSON.stringify(toFile())); } catch {}
+    project.heroes = []; undo.length = redo.length = 0;
+    for (const [id, m] of metas) applyMeta(id, m);
+    for (const [, f] of frames) if (project.heroes.some((h) => h.id === f.hero)) applyFrame(f);
+    syncRefresh(true);
+  }
+  Sync.watch('heroes', null, (type, id, m) => {
+    if (type === 'removed') { const i = project.heroes.findIndex((h) => h.id === id); if (i >= 0 && project.heroes.length > 1) project.heroes.splice(i, 1); }
+    else applyMeta(id, m);
+    syncRefresh(true);
+  });
+  Sync.watch('frames', null, (type, id, f) => { if (type !== 'removed') { applyFrame(f); syncRefresh(false); } });
+}
 project = loadStored() || { version: 1, heroes: [newHero('Мечник', knightFrames())] };
 showColor();
 changed(true);
 window.addEventListener('resize', layout);
 layout();
 setInterval(() => preview(performance.now()), 50);
+syncStart();
 </script>
 </body>
 </html>
