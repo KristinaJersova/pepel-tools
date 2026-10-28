@@ -136,7 +136,7 @@
         <button id="btnUndo" title="Ctrl+Z">Отменить</button>
         <button id="btnRedo" title="Ctrl+Y">Вернуть</button>
       </div>
-      <p class="hint">Клавиши: <b>B</b> карандаш, <b>E</b> ластик, <b>G</b> заливка, <b>L</b> линия, <b>R</b> прямоугольник, <b>I</b> пипетка, <b>M</b> зеркально, <b>[ ]</b> кисть, <b>←↑↓→</b> сдвиг кадра.</p>
+      <p class="hint">Клавиши: <b>B</b> карандаш, <b>E</b> ластик, <b>G</b> заливка, <b>L</b> линия, <b>R</b> прямоугольник, <b>I</b> пипетка, <b>S</b> выделить, <b>M</b> зеркально, <b>[ ]</b> кисть, <b>←↑↓→</b> сдвиг кадра, <b>Ctrl+C / X / V</b> копировать, вырезать, вставить.</p>
     </aside>
     <div class="stage">
       <canvas id="view"></canvas>
@@ -152,11 +152,21 @@
       <div class="frames" id="frameRow"></div>
       <h3>Кадр</h3>
       <div class="row">
+        <button id="btnCopy2" title="Ctrl+C — весь кадр или выделенное">Копировать</button>
+        <button id="btnCut" title="Ctrl+X — скопировать и стереть">Вырезать</button>
+        <button id="btnPaste" title="Ctrl+V — вставить; двигай мышкой или стрелками, Enter — готово, Esc — отмена">Вставить</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="btnPasteAll" title="Вставить скопированное во все 16 кадров на то же место">Во все кадры</button>
+        <label title="Пустые точки скопированного тоже стирают то, что под ними"><input type="checkbox" id="pasteEmpty"> с пустыми</label>
+      </div>
+      <p class="hint" id="clipHint">Ничего не скопировано. «Выделить» — рамкой часть кадра, без рамки копируется весь кадр. Правый клик по кадру сверху — скопировать его.</p>
+      <div class="row" style="margin-top:6px">
         <select id="copyFrom"></select>
         <button id="btnCopyFrame" title="Заменить этот кадр выбранным">Скопировать сюда</button>
       </div>
       <div class="row" style="margin-top:6px">
-        <button id="btnFlip" title="Отразить слева направо">Отразить</button>
+        <button id="btnFlip" title="Отразить слева направо (вставленный кусок — его)">Отразить</button>
         <button id="btnClear">Очистить</button>
       </div>
       <h3>Как выглядит</h3>
@@ -486,8 +496,45 @@ function draw(preview = null) {
   if (ui.mirror) { g.strokeStyle = 'rgba(242,196,90,0.7)'; g.lineWidth = 2; g.beginPath(); g.moveTo(ox + (W / 2) * cell, oy - 6); g.lineTo(ox + (W / 2) * cell, oy + H * cell + 6); g.stroke(); }
   // Линия земли: сюда встают ноги
   g.strokeStyle = 'rgba(242,196,90,0.35)'; g.setLineDash([6, 6]); g.beginPath(); g.moveTo(ox - 10, oy + 62 * cell + 0.5); g.lineTo(ox + W * cell + 10, oy + 62 * cell + 0.5); g.stroke(); g.setLineDash([]);
-  if (hover) { g.strokeStyle = '#f2c45a'; g.lineWidth = 2; const b = brushCells(hover.x, hover.y); for (const [x, y] of b) g.strokeRect(ox + x * cell + 1, oy + y * cell + 1, cell - 2, cell - 2); }
+  // Вставленный кусок висит поверх, пока не нажмёшь Enter или не кликнешь мимо
+  if (float) {
+    const c = float.clip;
+    for (let y = 0; y < c.h; y++) for (let x = 0; x < c.w; x++) { const m = c.px[y * c.w + x], X = float.x + x, Y = float.y + y; if (m === '.' || X < 0 || Y < 0 || X >= W || Y >= H) continue; g.fillStyle = flat(m, h); g.fillRect(ox + X * cell, oy + Y * cell, cell, cell); }
+    g.strokeStyle = '#f2c45a'; g.lineWidth = 2; g.setLineDash([6, 4]); g.strokeRect(ox + float.x * cell, oy + float.y * cell, c.w * cell, c.h * cell); g.setLineDash([]);
+  }
+  if (selRect) { const r = normRect(selRect); g.strokeStyle = '#7fd7ff'; g.lineWidth = 2; g.setLineDash([5, 4]); g.strokeRect(ox + r.x * cell + 1, oy + r.y * cell + 1, r.w * cell - 2, r.h * cell - 2); g.setLineDash([]); }
+  if (hover && ui.tool !== 'select' && !float) { g.strokeStyle = '#f2c45a'; g.lineWidth = 2; const b = brushCells(hover.x, hover.y); for (const [x, y] of b) g.strokeRect(ox + x * cell + 1, oy + y * cell + 1, cell - 2, cell - 2); }
 }
+
+// ───────────── Копировать и вставить ─────────────
+// Буфер живёт, пока открыт редактор: можно переносить и между кадрами, и между героями
+let clip = null, float = null, selRect = null;
+const normRect = (r) => ({ x: Math.min(r.x0, r.x1), y: Math.min(r.y0, r.y1), w: Math.abs(r.x1 - r.x0) + 1, h: Math.abs(r.y1 - r.y0) + 1 });
+function copySel(cut = false) {
+  applyFloat();
+  const r = selRect ? normRect(selRect) : { x: 0, y: 0, w: W, h: H }, px = cur(), out = [];
+  for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) out.push(px[(r.y + y) * W + r.x + x]);
+  clip = { ...r, px: out, from: FRAME_NAME[ui.frame], hero: hero().name };
+  if (cut) { remember(); for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) px[(r.y + y) * W + r.x + x] = '.'; changed(); }
+  showClip(); draw();
+}
+function pasteClip() {
+  if (!clip) { alert('Сначала скопируй: Ctrl+C или «Копировать»'); return; }
+  applyFloat(); float = { x: clip.x, y: clip.y, clip: { ...clip, px: clip.px.slice() } }; selRect = null; draw(); showClip();
+}
+// Вложить кусок в кадр: пустые точки не трогают то, что под ними, если не стоит «с пустыми»
+function stampClip(px, f) {
+  const c = f.clip, empty = $('pasteEmpty').checked;
+  for (let y = 0; y < c.h; y++) for (let x = 0; x < c.w; x++) { const m = c.px[y * c.w + x], X = f.x + x, Y = f.y + y; if (X < 0 || Y < 0 || X >= W || Y >= H || (m === '.' && !empty)) continue; px[Y * W + X] = m; }
+}
+function applyFloat() { if (!float) return; remember(); stampClip(cur(), float); float = null; changed(); showClip(); }
+function showClip() {
+  $('clipHint').innerHTML = float ? 'Вставлено: тяни мышкой или стрелками, <b>Enter</b> — готово, <b>Esc</b> — отмена, «Отразить» — зеркально.'
+    : clip ? `В буфере: ${clip.w === W && clip.h === H ? 'весь кадр' : `кусок ${clip.w}×${clip.h}`} — «${clip.from}»${clip.hero !== hero().name ? `, ${clip.hero}` : ''}. <b>Ctrl+V</b> — вставить.`
+    : 'Ничего не скопировано. «Выделить» — рамкой часть кадра, без рамки копируется весь кадр. Правый клик по кадру сверху — скопировать его.';
+}
+// Клетка под мышью без обрезки по краю — чтобы кусок можно было вытащить за край
+const cellRaw = (e) => { const r = view.getBoundingClientRect(), dpr = view.width / r.width; return { x: Math.floor(((e.clientX - r.left) * dpr - ox) / cell), y: Math.floor(((e.clientY - r.top) * dpr - oy) / cell) }; };
 function autoOnion() {
   const k = ui.frame, i = FRAMES.findIndex(([f]) => f === k);
   if (/\d$/.test(k)) return k.endsWith('0') ? (k.startsWith('side') ? 'quarter' : k.startsWith('up') ? 'back' : 'front') : FRAMES[i - 1][0];
@@ -527,8 +574,15 @@ function shape(px, a, b, m) {
 let drag = null, hover = null;
 view.addEventListener('contextmenu', (e) => e.preventDefault());
 view.addEventListener('pointerdown', (e) => {
+  // Вставленный кусок: внутри — тянуть, мимо — вложить и рисовать дальше
+  if (float) {
+    const r = cellRaw(e), c0 = float.clip;
+    if (r.x >= float.x && r.y >= float.y && r.x < float.x + c0.w && r.y < float.y + c0.h) { view.setPointerCapture(e.pointerId); drag = { float: true, dx: r.x - float.x, dy: r.y - float.y }; return; }
+    applyFloat();
+  }
   const c = cellAt(e); if (!c) return;
   view.setPointerCapture(e.pointerId);
+  if (ui.tool === 'select') { selRect = { x0: c.x, y0: c.y, x1: c.x, y1: c.y }; drag = { select: true }; draw(); return; }
   const erase = e.button === 2 || ui.tool === 'eraser', m = erase ? '.' : ui.mat;
   if (ui.tool === 'picker') { const got = cur()[c.y * W + c.x]; if (got !== '.') { ui.mat = got; ui.tool = 'pen'; if (hero().colors[got]) loadColor(hero().colors[got]); buildTools(); } return; }
   remember();
@@ -539,6 +593,8 @@ view.addEventListener('pointerdown', (e) => {
 view.addEventListener('pointermove', (e) => {
   hover = cellAt(e);
   setStatus();
+  if (drag?.float) { const r = cellRaw(e); float.x = r.x - drag.dx; float.y = r.y - drag.dy; draw(); return; }
+  if (drag?.select) { if (hover) { selRect.x1 = hover.x; selRect.y1 = hover.y; } draw(); return; }
   if (!drag || !hover) { draw(); return; }
   if (drag.shape) { const px = cur().slice(); shape(px, drag.start, hover, drag.m); draw(px); return; }
   for (const c of lineCells(drag.last, hover)) paintAt(cur(), c.x, c.y, drag.m);
@@ -546,6 +602,7 @@ view.addEventListener('pointermove', (e) => {
 });
 view.addEventListener('pointerup', (e) => {
   if (drag?.shape) { const c = cellAt(e) || drag.start; shape(cur(), drag.start, c, drag.m); changed(); }
+  if (drag?.select) { const r = normRect(selRect); if (r.w * r.h <= 1) selRect = null; draw(); }
   drag = null;
 });
 view.addEventListener('pointerleave', () => { hover = null; setStatus(); draw(); });
@@ -558,7 +615,7 @@ function shift(dx, dy) {
 
 // ───────────── Панели ─────────────
 const $ = (id) => document.getElementById(id);
-const TOOLS = [['pen', 'Карандаш', 'b'], ['eraser', 'Ластик', 'e'], ['fill', 'Заливка', 'g'], ['line', 'Линия', 'l'], ['rect', 'Прямоуг.', 'r'], ['picker', 'Пипетка', 'i']];
+const TOOLS = [['pen', 'Карандаш', 'b'], ['eraser', 'Ластик', 'e'], ['fill', 'Заливка', 'g'], ['line', 'Линия', 'l'], ['rect', 'Прямоуг.', 'r'], ['picker', 'Пипетка', 'i'], ['select', 'Выделить', 's']];
 function buildTools() {
   $('toolRow').replaceChildren(...TOOLS.map(([k, n]) => Object.assign(document.createElement('button'), { textContent: n, className: ui.tool === k ? 'on' : '', onclick: () => { ui.tool = k; buildTools(); } })));
   $('brushRow').replaceChildren(...[1, 2, 3].map((n) => Object.assign(document.createElement('button'), { textContent: n + '×' + n, className: ui.brush === n ? 'on' : '', onclick: () => { ui.brush = n; buildTools(); } })));
@@ -581,7 +638,10 @@ function buildHeroBar() {
 const thumbs = {};
 function buildFrames() {
   $('frameRow').replaceChildren(...FRAMES.map(([k, n]) => {
-    const b = Object.assign(document.createElement('button'), { className: ui.frame === k ? 'on' : '', onclick: () => { ui.frame = k; buildFrames(); draw(); setStatus(); } });
+    // Другой кадр: висящий кусок сперва ложится туда, где его вставили; правый клик — скопировать кадр целиком
+    const b = Object.assign(document.createElement('button'), { className: ui.frame === k ? 'on' : '', title: 'Правый клик — скопировать этот кадр',
+      onclick: () => { applyFloat(); ui.frame = k; buildFrames(); draw(); setStatus(); showClip(); },
+      oncontextmenu: (e) => { e.preventDefault(); applyFloat(); const was = ui.frame, sel = selRect; ui.frame = k; selRect = null; copySel(); ui.frame = was; selRect = sel; draw(); } });
     const c = Object.assign(document.createElement('canvas'), { width: W, height: H }); thumbs[k] = c;
     b.append(c, n); return b;
   }));
@@ -720,7 +780,19 @@ $('btnPng').onclick = () => {
 $('btnUndo').onclick = () => step(undo, redo);
 $('btnRedo').onclick = () => step(redo, undo);
 $('btnCopyFrame').onclick = () => { const k = $('copyFrom').value; if (k === ui.frame) return; remember(); hero().frames[ui.frame] = hero().frames[k].slice(); changed(); };
-$('btnFlip').onclick = () => { remember(); const px = cur(), out = px.slice(); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) out[y * W + x] = px[y * W + W - 1 - x]; hero().frames[ui.frame] = out; changed(); };
+$('btnCopy2').onclick = () => copySel();
+$('btnCut').onclick = () => copySel(true);
+$('btnPaste').onclick = () => pasteClip();
+$('btnPasteAll').onclick = () => {
+  const f = float || (clip && { x: clip.x, y: clip.y, clip }); if (!f) { alert('Сначала скопируй: Ctrl+C или «Копировать»'); return; }
+  if (!confirm('Вставить скопированное во все 16 кадров этого героя на то же место?')) return;
+  const was = ui.frame;
+  for (const [k] of FRAMES) { ui.frame = k; remember(); stampClip(cur(), f); }
+  ui.frame = was; float = null; changed(true); showClip();
+};
+$('btnFlip').onclick = () => {
+  if (float) { const c = float.clip, out = c.px.slice(); for (let y = 0; y < c.h; y++) for (let x = 0; x < c.w; x++) out[y * c.w + x] = c.px[y * c.w + c.w - 1 - x]; c.px = out; draw(); return; }
+  remember(); const px = cur(), out = px.slice(); for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) out[y * W + x] = px[y * W + W - 1 - x]; hero().frames[ui.frame] = out; changed(); };
 $('btnClear').onclick = () => { remember(); hero().frames[ui.frame] = new Array(W * H).fill('.'); changed(); };
 $('mirror').onchange = (e) => { ui.mirror = e.target.checked; draw(); };
 $('optShade').onchange = (e) => { ui.shaded = e.target.checked; draw(); };
@@ -731,7 +803,14 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'я')) { e.preventDefault(); step(e.shiftKey ? redo : undo, e.shiftKey ? undo : redo); return; }
   if ((e.ctrlKey || e.metaKey) && (k === 'y' || k === 'н')) { e.preventDefault(); step(redo, undo); return; }
+  if ((e.ctrlKey || e.metaKey) && (k === 'c' || k === 'с')) { e.preventDefault(); copySel(); return; }
+  if ((e.ctrlKey || e.metaKey) && (k === 'x' || k === 'ч')) { e.preventDefault(); copySel(true); return; }
+  if ((e.ctrlKey || e.metaKey) && (k === 'v' || k === 'м')) { e.preventDefault(); pasteClip(); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (k === 'enter' && float) { applyFloat(); return; }
+  if (k === 'escape') { if (float) { float = null; showClip(); } else selRect = null; draw(); return; }
+  if ((k === 'delete' || k === 'backspace') && selRect && !float) { remember(); const r = normRect(selRect); for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) cur()[(r.y + y) * W + r.x + x] = '.'; changed(); return; }
+  if (k === 's' || k === 'ы') { ui.tool = 'select'; buildTools(); return; }
   // Буквы и в русской раскладке: и=b, у=e, п=g, д=l, к=r, ш=i, ь=m
   const map = { b: 'pen', 'и': 'pen', e: 'eraser', 'у': 'eraser', g: 'fill', 'п': 'fill', l: 'line', 'д': 'line', r: 'rect', 'к': 'rect', i: 'picker', 'ш': 'picker' };
   if (map[k]) { ui.tool = map[k]; buildTools(); return; }
@@ -739,7 +818,7 @@ window.addEventListener('keydown', (e) => {
   if (k === '[' || k === 'х') { ui.brush = Math.max(1, ui.brush - 1); buildTools(); return; }
   if (k === ']' || k === 'ъ') { ui.brush = Math.min(3, ui.brush + 1); buildTools(); return; }
   const arrows = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
-  if (arrows[k]) { e.preventDefault(); shift(...arrows[k]); }
+  if (arrows[k]) { e.preventDefault(); if (float) { float.x += arrows[k][0]; float.y += arrows[k][1]; draw(); } else shift(...arrows[k]); }
 });
 
 project = loadStored() || { version: 1, heroes: [newHero('Мечник', knightFrames())] };
