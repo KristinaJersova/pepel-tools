@@ -815,24 +815,38 @@ $('btnPaste').onclick = () => pasteClip();
 
 // ───────────── PNG в кадр ─────────────
 // Картинка уменьшается под кадр, сводится к нескольким цветам и встаёт вставленным куском — двигай и Enter
-let pngSrc = null, pendingPaste = 0;
+let pngSrc = null, pngCorner = [0, 0, 0], pendingPaste = 0;
 async function openPng(file) {
   if (!file || !file.type.startsWith('image/')) return;
   try { pngSrc = await new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = URL.createObjectURL(file); }); }
   catch { alert('Картинка не открылась'); return; }
   applyFloat();
-  $('pngSize').value = pngSrc.width <= W && pngSrc.height <= H ? '1' : 'fit';
   // Угол непрозрачный — скорее всего, сплошной фон: предложим его убрать
   const t = document.createElement('canvas'); t.width = t.height = 1; const tg = t.getContext('2d'); tg.drawImage(pngSrc, 0, 0, 1, 1, 0, 0, 1, 1);
-  $('pngBg').checked = tg.getImageData(0, 0, 1, 1).data[3] > 200;
+  const cd = tg.getImageData(0, 0, 1, 1).data; pngCorner = [cd[0], cd[1], cd[2]]; $('pngBg').checked = cd[3] > 200;
+  { const b = pngBox(); $('pngSize').value = b.w <= W && b.h <= H ? '1' : 'fit'; }
   $('pngShade').checked = false;
   $('pngDlg').showModal(); pngPreview();
 }
+// Где на картинке сама фигура: без прозрачных полей, а с «убрать фон» — и без полей цвета угла
+function pngBox() {
+  const iw = pngSrc.width, ih = pngSrc.height, c = document.createElement('canvas'); c.width = iw; c.height = ih;
+  const g = c.getContext('2d'); g.drawImage(pngSrc, 0, 0); const d = g.getImageData(0, 0, iw, ih).data, bg = $('pngBg').checked;
+  let x0 = iw, y0 = ih, x1 = -1, y1 = -1;
+  for (let y = 0; y < ih; y++) for (let x = 0; x < iw; x++) {
+    const i = (y * iw + x) * 4; if (d[i + 3] < 128) continue;
+    if (bg && Math.abs(d[i] - pngCorner[0]) + Math.abs(d[i + 1] - pngCorner[1]) + Math.abs(d[i + 2] - pngCorner[2]) < 48) continue;
+    if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+  }
+  return x1 < 0 ? { x: 0, y: 0, w: iw, h: ih } : { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+// Больше кадра — режем по бокам поровну и сверху, ноги остаются
 function pngScaled() {
-  const s = $('pngSize').value, iw = pngSrc.width, ih = pngSrc.height, k = s === 'fit' ? Math.min(1, W / iw, H / ih) : 1 / +s;
-  const c = document.createElement('canvas'); c.width = Math.max(1, Math.min(W, Math.round(iw * k))); c.height = Math.max(1, Math.min(H, Math.round(ih * k)));
+  const s = $('pngSize').value, b = pngBox(), k = s === 'fit' ? Math.min(1, W / b.w, H / b.h) : 1 / +s;
+  const sw = Math.max(1, Math.round(b.w * k)), sh = Math.max(1, Math.round(b.h * k));
+  const c = document.createElement('canvas'); c.width = Math.min(W, sw); c.height = Math.min(H, sh);
   const g = c.getContext('2d'); g.imageSmoothingEnabled = $('pngSmooth').value === '1'; g.imageSmoothingQuality = 'high';
-  g.drawImage(pngSrc, 0, 0, Math.round(iw * k), Math.round(ih * k)); return c;
+  g.drawImage(pngSrc, b.x, b.y, b.w, b.h, -Math.floor((sw - c.width) / 2), c.height - sh, sw, sh); return c;
 }
 const dist3 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
 const nearestOf = (cs, p) => { let bi = 0, bd = Infinity; cs.forEach((c, i) => { const d = dist3(c, p); if (d < bd) { bd = d; bi = i; } }); return bi; };
@@ -853,8 +867,8 @@ function pngConvert() {
   const c = pngScaled(), w = c.width, h = c.height, d = c.getContext('2d').getImageData(0, 0, w, h).data, on = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i++) on[i] = d[i * 4 + 3] >= 128 ? 1 : 0;
   if ($('pngBg').checked) {
-    // Фон — от краёв, похожий на цвет угла; внутри фигуры такой же цвет не трогаем
-    const bg = [d[0], d[1], d[2]], like = (i) => Math.abs(d[i * 4] - bg[0]) + Math.abs(d[i * 4 + 1] - bg[1]) + Math.abs(d[i * 4 + 2] - bg[2]) < 48, st = [];
+    // Фон — от краёв, похожий на цвет угла исходной картинки (кусок уже обрезан); внутри фигуры такой же цвет не трогаем
+    const bg = pngCorner, like = (i) => Math.abs(d[i * 4] - bg[0]) + Math.abs(d[i * 4 + 1] - bg[1]) + Math.abs(d[i * 4 + 2] - bg[2]) < 48, st = [];
     for (let x = 0; x < w; x++) st.push(x, (h - 1) * w + x); for (let y = 0; y < h; y++) st.push(y * w, y * w + w - 1);
     while (st.length) { const i = st.pop(); if (!on[i] || !like(i)) continue; on[i] = 0; const x = i % w, y = (i / w) | 0; if (x > 0) st.push(i - 1); if (x < w - 1) st.push(i + 1); if (y > 0) st.push(i - w); if (y < h - 1) st.push(i + w); }
   }
